@@ -30,7 +30,82 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_CERTIFICATE_P12_BASE64" || {
+            echo "Missing APPLE_CERTIFICATE_P12_BASE64 repository secret." >&2
+            exit 1
+          }
+          test -n "$APPLE_CERTIFICATE_PASSWORD" || {
+            echo "Missing APPLE_CERTIFICATE_PASSWORD repository secret." >&2
+            exit 1
+          }
+
+          certificate_path="$RUNNER_TEMP/nook-developer-id.p12"
+          keychain_path="$RUNNER_TEMP/nook-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 20)"
+
+          printf '%s' "$APPLE_CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+          security default-keychain -s "$keychain_path"
+
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F'"' '/Developer ID Application:/{print $2; exit}')"
+          test -n "$identity" || {
+            echo "The imported certificate is not a Developer ID Application certificate." >&2
+            exit 1
+          }
+          echo "CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+
+      - name: Prepare notarization credentials
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$APPLE_API_KEY_BASE64" || {
+            echo "Missing APPLE_API_KEY_BASE64 repository secret." >&2
+            exit 1
+          }
+          test -n "$APPLE_API_KEY_ID" || {
+            echo "Missing APPLE_API_KEY_ID repository secret." >&2
+            exit 1
+          }
+          test -n "$APPLE_API_ISSUER_ID" || {
+            echo "Missing APPLE_API_ISSUER_ID repository secret." >&2
+            exit 1
+          }
+
+          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+          echo "APPLE_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER_ID=$APPLE_API_ISSUER_ID" >> "$GITHUB_ENV"
+
       - name: Build release assets
+        env:
+          NOTARIZE: "1"
         run: ./Scripts/package-release.sh --version "${{ steps.version.outputs.version }}" --output-dir dist
 
       - name: Upload release assets for publishing
@@ -42,6 +117,12 @@ jobs:
             dist/Nook-*.dmg
             dist/Nook-*.zip
             dist/Nook-*.sha256
+
+      - name: Clean up signing keychain
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/nook-signing.keychain-db" 2>/dev/null || true
 
   publish:
     needs: package

@@ -25,6 +25,10 @@ If you change the packaging workflow, also run:
 
 The packaging script is macOS-only because it uses `codesign`, `ditto`, and `hdiutil`.
 
+Release tags are built by GitHub Actions. Maintainers must configure the
+Developer ID and App Store Connect secrets documented in the README; never
+commit certificates, private API keys, or notarization credentials.
+
 ## Pull requests
 
 Explain what changed, how you checked it, and include a screenshot for visual changes when it helps. Keep commits and pull request titles in English so the project history stays consistent.

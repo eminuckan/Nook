@@ -2,6 +2,10 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+- Release packaging now supports Developer ID signing, hardened runtime, Apple notarization, and stapled tickets. CI refuses to publish a new release without those credentials.
+
 ## [0.1.0] - 2026-09-08
 
 The first public release of Nook.
