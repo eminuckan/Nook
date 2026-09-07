@@ -90,7 +90,10 @@ private enum NookLogoAsset {
         }
 
         image.size = size
-        image.isTemplate = true
+        // Keep the paper white so the mark has enough separation from both
+        // light and dark menu bars. The black contour is part of the logo,
+        // not a template tint.
+        image.isTemplate = false
         return image
     }
 }
@@ -108,9 +111,14 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         let statusView = NookStatusItemView(frame: NSRect(x: 0, y: 0, width: 24, height: 22))
-        let image = NookLogoAsset.image(size: NSSize(width: 18, height: 18))
-            ?? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Nook")
-        image?.isTemplate = true
+        let image: NSImage?
+        if let logo = NookLogoAsset.image(size: NSSize(width: 18, height: 18)) {
+            image = logo
+        } else {
+            let fallback = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Nook")
+            fallback?.isTemplate = true
+            image = fallback
+        }
         statusView.image = image
         statusView.toolTip = language.strings.panelTooltip
         statusView.onPrimaryAction = { [weak self] in self?.togglePanel() }
