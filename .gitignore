@@ -3,6 +3,7 @@
 DerivedData/
 work/
 outputs/
+dist/
 *.app/
 .DS_Store
 *.xcuserstate

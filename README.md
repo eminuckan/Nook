@@ -21,7 +21,11 @@ This started as a personal tool. It is intentionally focused: quick notes, a few
 
 Nook uses AppKit and SwiftUI from the system SDK. There are no third-party package dependencies.
 
-## Build and run
+## Install a release
+
+Download the latest `.dmg` from [GitHub Releases](https://github.com/eminuckan/Nook/releases), open it, and drag Nook to Applications. Choose the asset that matches your Mac’s architecture. The public build is ad-hoc signed and not notarized; macOS may ask you to confirm the first launch with a right-click and **Open**.
+
+## Build and run from source
 
 ```sh
 swift build -c release
@@ -29,6 +33,29 @@ swift build -c release
 ```
 
 Nook is a menu-bar app, so launching it does not open a regular document window. Look for the note icon in the menu bar. Right-click that icon to quit.
+
+To create local release assets (`.app`, `.zip`, `.dmg`, and checksums):
+
+```sh
+./Scripts/package-release.sh --version 0.1.0
+```
+
+The packaging script is macOS-only because it uses `codesign`, `ditto`, and `hdiutil`.
+
+## Releases and versioning
+
+Nook uses [Semantic Versioning](https://semver.org/). Every tag in the form `vMAJOR.MINOR.PATCH` starts the release workflow in [`.github/workflows/release.yml`](.github/workflows/release.yml). GitHub Actions builds the app, creates the DMG and zip archives, writes SHA-256 checksums, and publishes them to a GitHub Release.
+
+To publish the next release:
+
+```sh
+git switch main
+git pull --ff-only
+git tag -a v0.1.1 -m "Release v0.1.1"
+git push origin v0.1.1
+```
+
+Update [`CHANGELOG.md`](CHANGELOG.md) before tagging. The release workflow generates the GitHub notes from the commits and attaches the build files automatically.
 
 ## Data and privacy
 
@@ -42,8 +69,8 @@ Appearance, language, shortcut, and custom-tag preferences are kept in the stand
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a pull request, please run a release build and describe any UI or behavior changes in the PR. Keep changes small and preserve the local-first behavior.
+Issues and pull requests are welcome. The short version is in [`CONTRIBUTING.md`](CONTRIBUTING.md): keep changes focused, run the release build and `git diff --check`, and describe UI changes with a screenshot when useful.
 
 ## License
 
-Nook is released under the MIT License. See [LICENSE](LICENSE).
+Nook is released under the MIT License. See [`LICENSE`](LICENSE).
