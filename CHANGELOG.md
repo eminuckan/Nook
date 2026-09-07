@@ -4,7 +4,7 @@ This file records user-facing changes. Versions follow [Semantic Versioning](htt
 
 ## [Unreleased]
 
-- Release packaging now supports Developer ID signing, hardened runtime, Apple notarization, and stapled tickets. CI refuses to publish a new release without those credentials.
+- Release packaging supports optional Developer ID signing, hardened runtime, Apple notarization, and stapled tickets. The default release path remains ad-hoc for local use.
 
 ## [0.1.0] - 2026-09-08
 

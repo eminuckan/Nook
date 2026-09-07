@@ -127,14 +127,21 @@ echo "Building Nook $VERSION for $ARCH"
 swift build -c release --package-path "$ROOT_DIR"
 
 BINARY_PATH="$ROOT_DIR/.build/release/Nook"
+RESOURCE_BUNDLE_PATH="$ROOT_DIR/.build/release/Nook_Nook.bundle"
 if [[ ! -x "$BINARY_PATH" ]]; then
     echo "Build completed without an executable at $BINARY_PATH" >&2
+    exit 1
+fi
+if [[ ! -d "$RESOURCE_BUNDLE_PATH" ]]; then
+    echo "Build completed without the Nook resource bundle at $RESOURCE_BUNDLE_PATH" >&2
     exit 1
 fi
 
 mkdir -p "$APP_PATH/Contents/MacOS"
 cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/Nook"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
+mkdir -p "$APP_PATH/Contents/Resources"
+cp -R "$RESOURCE_BUNDLE_PATH" "$APP_PATH/Contents/Resources/Nook_Nook.bundle"
 
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_PATH/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"

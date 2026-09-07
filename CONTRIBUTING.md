@@ -25,7 +25,8 @@ If you change the packaging workflow, also run:
 
 The packaging script is macOS-only because it uses `codesign`, `ditto`, and `hdiutil`.
 
-Release tags are built by GitHub Actions. Maintainers must configure the
+Release tags are built by GitHub Actions and currently produce ad-hoc assets
+for local use. If notarized distribution is enabled later, configure the
 Developer ID and App Store Connect secrets documented in the README; never
 commit certificates, private API keys, or notarization credentials.
 

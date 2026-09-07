@@ -23,7 +23,7 @@ Nook uses AppKit and SwiftUI from the system SDK. There are no third-party packa
 
 ## Install a release
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/eminuckan/Nook/releases), open it, and drag Nook to Applications. The first public asset (`v0.1.0`) is for Apple Silicon (`arm64`) and was built before the notarization credentials were connected, so macOS can show a Gatekeeper warning for it. New releases are expected to use the signed and notarized workflow described below.
+Download the latest `.dmg` from [GitHub Releases](https://github.com/eminuckan/Nook/releases), open it, and drag Nook to Applications. The current public asset (`v0.1.0`) is for Apple Silicon (`arm64`) and is ad-hoc signed for local use, so macOS can show a Gatekeeper warning. For your own Mac, right-click Nook and choose **Open** the first time.
 
 ## Build and run from source
 
@@ -59,14 +59,14 @@ Update [`CHANGELOG.md`](CHANGELOG.md) before tagging. The release workflow gener
 
 ### Maintainer release setup
 
-The release job intentionally does not fall back to an ad-hoc build. Before publishing a new tag, configure these repository secrets in GitHub:
+The current release job publishes ad-hoc assets for local use. When Nook is ready for wider distribution, switch the release job to notarization and configure these repository secrets in GitHub:
 
 - `APPLE_CERTIFICATE_P12_BASE64` — base64 of a **Developer ID Application** certificate export.
 - `APPLE_CERTIFICATE_PASSWORD` — password used for that `.p12` export.
 - `APPLE_API_KEY_BASE64` — base64 of an App Store Connect API key (`.p8`).
 - `APPLE_API_KEY_ID` and `APPLE_API_ISSUER_ID` — the matching API key identifiers.
 
-The workflow imports the certificate into a temporary keychain, enables the hardened runtime, submits the app and DMG to Apple’s notary service, and staples the resulting tickets. Keep the original certificate and API key files out of the repository. The Apple Developer Program membership is required for these credentials.
+The notarized workflow imports the certificate into a temporary keychain, enables the hardened runtime, submits the app and DMG to Apple’s notary service, and staples the resulting tickets. Keep the original certificate and API key files out of the repository. The Apple Developer Program membership is required for these credentials.
 
 For a local signed build, set `CODESIGN_IDENTITY` to the installed Developer ID identity. Add `NOTARIZE=1` and the same API-key variables when you also want to notarize locally; without those variables the script remains useful for local ad-hoc builds only.
 

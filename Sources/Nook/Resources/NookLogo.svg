@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 400" role="img" aria-labelledby="title desc">
+  <title id="title">Nook</title>
+  <desc id="desc">A hand-drawn note with a folded lower-right corner and a soft shadow.</desc>
+
+  <!-- The shadow sits below the paper with the same generous gap as the
+       reference mark, rather than touching the lower edge. -->
+  <ellipse cx="196" cy="375" rx="96" ry="18" fill="#e5e6e8" opacity="0.82"/>
+
+  <!-- The white fold is drawn first so the rough outer contour can sit on top
+       of it, just as it does on a real sheet of paper. -->
+  <path
+    d="M265 248
+       C283 251 309 253 329 247
+       L329 320
+       C306 322 282 321 255 322
+       C263 302 267 274 265 248 Z"
+    fill="#ffffff"/>
+
+  <!-- The outline is intentionally a little uneven: it is the mark, not a
+       mathematically perfect rounded rectangle. -->
+  <path
+    d="M69 56
+       C111 53 154 55 197 55
+       C242 54 286 54 329 56
+       C331 103 329 147 330 191
+       C330 219 329 235 329 248
+       C329 273 330 298 328 321
+       C306 323 284 321 256 322
+       C231 323 211 322 185 322
+       C143 322 103 322 68 320
+       C66 281 68 244 67 205
+       C67 162 66 118 69 56 Z"
+    fill="none"
+    stroke="#0d0d0d"
+    stroke-width="11"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <!-- Fold seam and the slightly lifted paper corner. -->
+  <path
+    d="M265 248 C283 251 309 253 329 247"
+    fill="none"
+    stroke="#0d0d0d"
+    stroke-width="10"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+  <path
+    d="M329 247 C311 275 284 302 255 322"
+    fill="none"
+    stroke="#0d0d0d"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+</svg>

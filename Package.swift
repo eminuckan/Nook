@@ -13,7 +13,10 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "Nook",
-            path: "Sources/Nook"
+            path: "Sources/Nook",
+            resources: [
+                .copy("Resources/NookLogo.svg")
+            ]
         )
     ]
 )

@@ -78,6 +78,23 @@ private final class NookStatusItemView: NSView {
     }
 }
 
+private enum NookLogoAsset {
+    static func image(size: NSSize) -> NSImage? {
+        guard let url = Bundle.main.url(
+            forResource: "NookLogo",
+            withExtension: "svg",
+            subdirectory: "Nook_Nook.bundle"
+        ),
+              let image = NSImage(contentsOf: url) else {
+            return nil
+        }
+
+        image.size = size
+        image.isTemplate = true
+        return image
+    }
+}
+
 @MainActor
 final class NookAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -91,7 +108,8 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
         let statusView = NookStatusItemView(frame: NSRect(x: 0, y: 0, width: 24, height: 22))
-        let image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Nook")
+        let image = NookLogoAsset.image(size: NSSize(width: 18, height: 18))
+            ?? NSImage(systemSymbolName: "note.text", accessibilityDescription: "Nook")
         image?.isTemplate = true
         statusView.image = image
         statusView.toolTip = language.strings.panelTooltip
