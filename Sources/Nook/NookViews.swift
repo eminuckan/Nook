@@ -8,6 +8,16 @@ enum NookLayout {
     /// cleanly as the first row.
     static let contentInset: CGFloat = 8
     static let itemGap: CGFloat = 8
+    static let minimumNoteHeight: CGFloat = 86
+
+    static func noteHeight(count: Int, availableHeight: CGFloat) -> CGFloat {
+        guard count > 0 else { return minimumNoteHeight }
+        let fitted = (availableHeight - CGFloat(count - 1) * itemGap) / CGFloat(count)
+        // Absorb a small remainder only when the visible rows nearly fill
+        // the viewport. Short lists retain their compact, familiar density.
+        return fitted >= minimumNoteHeight && fitted <= minimumNoteHeight + itemGap
+            ? fitted : minimumNoteHeight
+    }
     static let sectionGap: CGFloat = 20
     /// Comfortable reading inset for secondary surfaces. The notes list is
     /// intentionally tighter; Settings and the editor use this wider rail so
@@ -439,45 +449,41 @@ private struct NotesDashboardCard: View {
                         if visibleNotes.isEmpty {
                             EmptyCardState(searchText: searchText, isDark: isDark, onCreate: onCreate)
                         } else {
-                            ScrollView(showsIndicators: false) {
-                                LazyVStack(spacing: NookLayout.itemGap) {
-                                    ForEach(visibleNotes) { note in
-                                        CardNoteRow(
-                                            note: note,
-                                            isDark: isDark,
-                                            isHovered: hoveredID == note.id,
-                                            isReordering: isReordering,
-                                            isDragged: draggedID == note.id,
-                                            isDropTarget: dropTargetID == note.id,
-                                            draggedID: $draggedID,
-                                            dropTargetID: $dropTargetID,
-                                            dropPlacement: $dropPlacement,
-                                            lastReorderKey: $lastReorderKey,
-                                            noteOrder: visibleNotes,
-                                            onSelect: { onSelect(note.id) },
-                                            onTogglePinned: { store.togglePinned(id: note.id) },
-                                            onHover: { hovering in hoveredID = hovering ? note.id : nil },
-                                            onReorder: { movingID, targetID, placement in
-                                                switch placement {
-                                                case .before:
-                                                    store.reorder(id: movingID, before: targetID)
-                                                case .after:
-                                                    store.reorder(id: movingID, after: targetID)
+                            GeometryReader { geometry in
+                                ScrollView(showsIndicators: false) {
+                                    LazyVStack(spacing: NookLayout.itemGap) {
+                                        ForEach(visibleNotes) { note in
+                                            CardNoteRow(
+                                                note: note,
+                                                rowHeight: NookLayout.noteHeight(count: visibleNotes.count, availableHeight: geometry.size.height),
+                                                isDark: isDark,
+                                                isHovered: hoveredID == note.id,
+                                                isReordering: isReordering,
+                                                isDragged: draggedID == note.id,
+                                                isDropTarget: dropTargetID == note.id,
+                                                draggedID: $draggedID,
+                                                dropTargetID: $dropTargetID,
+                                                dropPlacement: $dropPlacement,
+                                                lastReorderKey: $lastReorderKey,
+                                                noteOrder: visibleNotes,
+                                                onSelect: { onSelect(note.id) },
+                                                onTogglePinned: { store.togglePinned(id: note.id) },
+                                                onHover: { hovering in hoveredID = hovering ? note.id : nil },
+                                                onReorder: { movingID, targetID, placement in
+                                                    switch placement {
+                                                    case .before:
+                                                        store.reorder(id: movingID, before: targetID)
+                                                    case .after:
+                                                        store.reorder(id: movingID, after: targetID)
+                                                    }
                                                 }
-                                            }
-                                        )
+                                            )
+                                        }
                                     }
-                                    // A zero-height trailing sentinel makes
-                                    // LazyVStack materialize one shared item
-                                    // gap after the last tile. The shell's
-                                    // 10pt bottom inset then matches the
-                                    // 10pt + 8pt side rhythm without stacking
-                                    // another full inset at the bottom.
-                                    Color.clear
-                                        .frame(height: 0)
+                                    .padding(.horizontal, NookLayout.contentInset)
                                 }
-                                .padding(.horizontal, NookLayout.contentInset)
                             }
+                            .padding(.bottom, NookLayout.contentInset)
                         }
                 }
             }
@@ -1059,6 +1065,7 @@ private struct CardTabButton: View {
 
 private struct CardNoteRow: View {
     let note: NookNote
+    let rowHeight: CGFloat
     let isDark: Bool
     let isHovered: Bool
     let isReordering: Bool
@@ -1106,7 +1113,7 @@ private struct CardNoteRow: View {
                         Spacer(minLength: 8)
                     }
                     .padding(.horizontal, 14)
-                    .frame(width: 380, height: 86, alignment: .leading)
+                    .frame(width: 380, height: rowHeight, alignment: .leading)
                     .background(rowSurface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
@@ -1146,7 +1153,7 @@ private struct CardNoteRow: View {
                 .padding(.trailing, 14)
                 .zIndex(1)
         }
-        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86)
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight)
         .onHover { hovering in
             hovered(hovering)
         }
@@ -1163,7 +1170,7 @@ private struct CardNoteRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .top)
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -1188,7 +1195,7 @@ private struct CardNoteRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: rowHeight, maxHeight: rowHeight, alignment: .top)
         .background(rowBackground)
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
