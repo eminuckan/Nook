@@ -69,7 +69,7 @@ Rich note bodies use self-contained RTFD data in the existing `bodyRTF` JSON fie
 
 ## What's next
 
-The [roadmap](ROADMAP.md) sets out the planned order: reliability and portable notes, Windows and Linux, optional sync, mobile apps, audio recording, voice-to-text, and drawing tools. Optional AI with your own API key is an exploration. These are future plans; the current release is a local macOS app.
+The [roadmap](ROADMAP.md) sets out the planned order: reliability and portable notes, optional sync, mobile apps, audio recording, voice-to-text, and drawing tools. Optional AI with your own API key is an exploration. Windows and Linux ports are deferred until after these higher-priority areas. These are future plans; the current release is a local macOS app.
 
 ## Development
 
