@@ -987,6 +987,56 @@ final class NookTextView: NSTextView {
         }
     }
 
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let image = image(at: point) else { return super.menu(for: event) }
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "Copy Image", action: #selector(copyContextImage(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = image
+        menu.addItem(item)
+        return menu
+    }
+
+    // Require a hit inside the attachment, rather than the nearest character:
+    // blank space beside a photo must retain the normal text menu.
+    func image(at point: NSPoint) -> NSImage? {
+        guard let layoutManager, let textContainer, let storage = textStorage,
+              storage.length > 0 else { return nil }
+        layoutManager.ensureLayout(for: textContainer)
+        let location = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = layoutManager.glyphIndex(for: location, in: textContainer)
+        guard glyph < layoutManager.numberOfGlyphs,
+              layoutManager.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1),
+                                         in: textContainer).contains(location) else { return nil }
+        let index = layoutManager.characterIndexForGlyph(at: glyph)
+        guard index < storage.length,
+              let attachment = storage.attribute(.attachment, at: index, effectiveRange: nil) as? NSTextAttachment else { return nil }
+        if let bytes = attachment.fileWrapper?.regularFileContents {
+            // Non-image file attachments can have an image icon; do not copy it.
+            return NSImage(data: bytes)
+        }
+        guard attachment.fileWrapper == nil else { return nil }
+        return attachment.image ?? (attachment.attachmentCell as? NSTextAttachmentCell)?.image
+    }
+
+    @objc private func copyContextImage(_ sender: NSMenuItem) {
+        guard let image = sender.representedObject as? NSImage else { return }
+        if !copyImage(image, to: .general) { NSSound.beep() }
+    }
+
+    @discardableResult
+    func copyImage(_ image: NSImage, to pasteboard: NSPasteboard) -> Bool {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let png = bitmap.representation(using: .png, properties: [:]) else { return false }
+        let item = NSPasteboardItem()
+        item.setData(png, forType: .png)
+        item.setData(tiff, forType: .tiff)
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([item])
+    }
+
     override func paste(_ sender: Any?) {
         paste(from: .general)
     }

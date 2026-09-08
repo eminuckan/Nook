@@ -2,6 +2,10 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.4] - 2026-09-08
+
+- Right-click an embedded photo and choose Copy Image to copy actual image data for pasting into Nook and other apps.
+
 ## [0.2.3] - 2026-09-08
 
 - Match the notes list bottom inset to its side insets and row gaps. Nearly full lists distribute the small remaining height across rows; short and scrolling lists keep compact rows.

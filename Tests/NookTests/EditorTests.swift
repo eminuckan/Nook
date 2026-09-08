@@ -53,6 +53,49 @@ final class EditorTests: XCTestCase {
     }
 
     @MainActor
+    func testImageContextMenuCopiesPixelsWithoutChangingDocument() async throws {
+        let photo = NSImage(size: NSSize(width: 80, height: 60), flipped: false) { rect in
+            NSColor.systemOrange.setFill(); rect.fill(); return true
+        }
+        let attachment = try NookRichDocument.imageAttachment(photo)
+        let document = NSMutableAttributedString(string: "text\n")
+        document.append(NSAttributedString(attachment: attachment))
+        let h = Harness(document.string, richData: try NookRichDocument.encode(document))
+        defer { h.close() }
+        let manager = try XCTUnwrap(h.view.layoutManager)
+        let container = try XCTUnwrap(h.view.textContainer)
+        manager.ensureLayout(for: container)
+        let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: 5, length: 1), actualCharacterRange: nil)
+        let rect = manager.boundingRect(forGlyphRange: glyphs, in: container)
+        let point = NSPoint(x: rect.midX + h.view.textContainerOrigin.x,
+                            y: rect.midY + h.view.textContainerOrigin.y)
+        let image = try XCTUnwrap(h.view.image(at: point))
+        XCTAssertNil(h.view.image(at: NSPoint(x: rect.maxX + h.view.textContainerOrigin.x + 40, y: point.y)))
+        XCTAssertNil(h.view.image(at: NSPoint(x: -10, y: -10)))
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .rightMouseDown,
+            location: h.view.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: h.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let menu = try XCTUnwrap(h.view.menu(for: event))
+        XCTAssertEqual(menu.items.map(\.title), ["Copy Image"])
+        XCTAssertTrue(menu.items[0].target === h.view)
+        XCTAssertNotNil(menu.items[0].representedObject as? NSImage)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        XCTAssertTrue(h.view.copyImage(image, to: pasteboard))
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+        let copied = try XCTUnwrap(NSBitmapImageRep(data: XCTUnwrap(pasteboard.data(forType: .png))))
+        XCTAssertEqual(copied.pixelsWide, 80)
+        XCTAssertEqual(copied.pixelsHigh, 60)
+        XCTAssertEqual(h.view.string, document.string)
+        XCTAssertTrue(h.saves.isEmpty)
+        let destination = Harness()
+        defer { destination.close() }
+        destination.view.paste(from: pasteboard)
+        XCTAssertTrue(destination.view.string.contains("\u{fffc}"))
+    }
+
+    @MainActor
     func testImageInsertUndoRedoSynchronouslySavesRecoverableDocument() async throws {
         let h = Harness("before")
         defer { h.close() }
