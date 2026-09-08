@@ -2,6 +2,11 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.5] - 2026-09-08
+
+- Keep Nook visible above normal application windows when switching apps or selecting an item in Spotlight clipboard history. Use the minimize control or menu-bar icon to hide the panel explicitly.
+- Size the note title area to its content, removing reserved blank space between short titles and the note body. Wrapped titles expand naturally up to the existing four-line limit.
+
 ## [0.2.4] - 2026-09-08
 
 - Right-click an embedded photo and choose Copy Image to copy actual image data for pasting into Nook and other apps.

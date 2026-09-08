@@ -250,8 +250,6 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
     private let editingSession = NookEditingSession()
     private let language: NookLanguageStore
     private var shortcutManager: NookShortcutManager?
-    private var globalClickMonitor: Any?
-    private var localClickMonitor: Any?
     private var didPlacePanel = false
     private var isApplyingPanelFrame = false
     private var isSnappingPanel = false
@@ -314,6 +312,8 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         panel.hasShadow = true
         panel.level = .floating
         panel.isFloatingPanel = true
+        // Stay visible while the user works in other apps or clipboard history.
+        // Only explicit dismissal should hide this sticky companion panel.
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = false
         panel.animationBehavior = .utilityWindow
@@ -340,7 +340,6 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
             positionPanel()
             didPlacePanel = true
         }
-        installClickMonitors()
         NSApp.activate(ignoringOtherApps: true)
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
@@ -350,7 +349,6 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         pendingSnap?.cancel()
         pendingSnap = nil
         store.flushPendingPersistence()
-        removeClickMonitors()
         panel.orderOut(nil)
     }
 
@@ -380,15 +378,6 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
     func windowDidMove(_ notification: Notification) {
         guard panel.isVisible, !isApplyingPanelFrame, !isSnappingPanel else { return }
         schedulePanelSnap()
-    }
-
-    func windowDidResignKey(_ notification: Notification) {
-        // Clicking another app is the natural end of a quick-capture moment.
-        // A document picker belongs to the editing session. Hiding its parent
-        // here makes inserting an attachment appear to dismiss the note.
-        if panel.isVisible && panel.attachedSheet == nil
-            && Bundle.main.bundleIdentifier != "com.nook.quicknotes.preview"
-            && !CommandLine.arguments.contains("--preview") { hide() }
     }
 
     private func positionPanel() {
@@ -543,33 +532,6 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
 
     private func clamped(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
         min(max(value, lower), upper)
-    }
-
-    private func installClickMonitors() {
-        removeClickMonitors()
-
-        // Preview keeps the panel mounted while the visual inspector clicks
-        // around; the shipped menu-bar bundle still dismisses on outside click.
-        if Bundle.main.bundleIdentifier == "com.nook.quicknotes.preview" || CommandLine.arguments.contains("--preview") { return }
-
-        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, self.panel.isVisible, self.panel.attachedSheet == nil else { return }
-            if !self.panel.frame.contains(NSEvent.mouseLocation) { self.hide() }
-        }
-
-        localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, self.panel.isVisible, self.panel.attachedSheet == nil else { return event }
-            let location = NSEvent.mouseLocation
-            if !self.panel.frame.contains(location) { self.hide() }
-            return event
-        }
-    }
-
-    private func removeClickMonitors() {
-        if let globalClickMonitor { NSEvent.removeMonitor(globalClickMonitor) }
-        if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
-        globalClickMonitor = nil
-        localClickMonitor = nil
     }
 
     private func applyCollectionBehavior(keepAcrossSpaces: Bool) {
