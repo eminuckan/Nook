@@ -21,6 +21,8 @@
   &nbsp;·&nbsp;
   <a href="CHANGELOG.md">What's new</a>
   &nbsp;·&nbsp;
+  <a href="ROADMAP.md">Roadmap</a>
+  &nbsp;·&nbsp;
   <a href="CONTRIBUTING.md">Contribute</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/eminuckan/Nook/issues">Report an issue</a>
@@ -64,6 +66,10 @@ Notes are stored in:
 Appearance, language, shortcut, custom-tag, and update-check preferences are kept in the standard macOS `UserDefaults` store for the app. Launch-at-login state is managed by macOS. Update checks connect to GitHub to retrieve release metadata and update packages; note content is never sent.
 
 Rich note bodies use self-contained RTFD data in the existing `bodyRTF` JSON field; legacy RTF notes remain readable. Save failures are shown with a retry action. If an existing notes file cannot be read, Nook preserves it and blocks writes until the file is repaired or moved safely aside.
+
+## What's next
+
+The [roadmap](ROADMAP.md) sets out the planned order: reliability and portable notes, Windows and Linux, optional sync, mobile apps, audio recording, voice-to-text, and drawing tools. Optional AI with your own API key is an exploration. These are future plans; the current release is a local macOS app.
 
 ## Development
 
