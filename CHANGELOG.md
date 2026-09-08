@@ -2,6 +2,10 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.7] - 2026-09-08
+
+- Open the right-edge notes panel automatically when Nook starts, without requiring a menu-bar click.
+
 ## [0.2.6] - 2026-09-08
 
 - Activate Nook when interacting with its floating panel, so system clipboard tools can return to Nook instead of the previously active application. The panel still stays visible above normal windows when another app gains focus.

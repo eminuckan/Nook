@@ -157,12 +157,9 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
         self.updater = updater
         panelController = NookPanelController(language: language, updater: updater)
 
-        // A separate preview bundle can open the panel on launch for visual QA
-        // without changing the shipped menu-bar-first behavior.
-        if Bundle.main.bundleIdentifier == "com.nook.quicknotes.preview" || CommandLine.arguments.contains("--preview") {
-            DispatchQueue.main.async { [weak self] in
-                self?.panelController?.show()
-            }
+        // Reveal the right-edge panel once AppKit finishes launch setup.
+        DispatchQueue.main.async { [weak self] in
+            self?.panelController?.show()
         }
     }
 
