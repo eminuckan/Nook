@@ -3,19 +3,72 @@ import Combine
 
 @MainActor
 final class NotesStore: ObservableObject {
-    @Published private(set) var notes: [NookNote]
+    struct PersistenceError: Error, Equatable, Identifiable, LocalizedError {
+        enum Operation: String, Equatable {
+            case load
+            case save
+        }
 
+        let operation: Operation
+        let url: URL
+        let reason: String
+
+        var id: String {
+            "\(operation.rawValue):\(url.path):\(reason)"
+        }
+
+        var isBlocking: Bool {
+            operation == .load
+        }
+
+        var errorDescription: String? {
+            switch operation {
+            case .load:
+                return "Nook could not read its saved notes at \(url.path)."
+            case .save:
+                return "Nook could not save its notes at \(url.path)."
+            }
+        }
+
+        var failureReason: String? {
+            reason
+        }
+
+        var recoverySuggestion: String? {
+            switch operation {
+            case .load:
+                return "No changes were written. Make a safe backup of \(url.path), repair or remove it, then choose Retry."
+            case .save:
+                return "Check that \(url.path) is writable, then choose Retry."
+            }
+        }
+    }
+
+    @Published private(set) var notes: [NookNote]
+    @Published private(set) var persistenceError: PersistenceError?
+
+    private let fileManager: FileManager
+    private let directoryURL: URL
     private let fileURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var pendingPersistTask: Task<Void, Never>?
     private var hasPendingPersistence = false
+    private var isLoadBlocked = false
 
-    init(fileManager: FileManager = .default) {
-        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+    init(directoryURL: URL? = nil, fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+
+        let resolvedDirectoryURL: URL
+        if let directoryURL {
+            resolvedDirectoryURL = directoryURL
+        } else {
+            let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
-        let directory = appSupport.appendingPathComponent("Nook", isDirectory: true)
-        fileURL = directory.appendingPathComponent("notes.json")
+            resolvedDirectoryURL = appSupport.appendingPathComponent("Nook", isDirectory: true)
+        }
+        self.directoryURL = resolvedDirectoryURL
+        fileURL = resolvedDirectoryURL.appendingPathComponent("notes.json")
 
         encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -24,21 +77,48 @@ final class NotesStore: ObservableObject {
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        if let data = try? Data(contentsOf: fileURL),
-           let saved = try? decoder.decode([NookNote].self, from: data) {
-            var loaded = saved.sorted { $0.updatedAt > $1.updatedAt }
-            for index in loaded.indices where loaded[index].sortOrder == nil {
-                loaded[index].sortOrder = index
-            }
-            notes = Self.ordered(loaded)
-        } else {
-            var seeded = Self.sampleNotes
-            for index in seeded.indices { seeded[index].sortOrder = index }
-            notes = Self.ordered(seeded)
+        notes = []
+        persistenceError = nil
+        loadNotes()
+    }
+
+    var isPersistenceBlocked: Bool {
+        isLoadBlocked
+    }
+
+    /// Retries the last failed persistence operation. A load failure is retried
+    /// by reading the existing file again; it is never replaced implicitly.
+    /// A save failure retries the pending in-memory snapshot.
+    @discardableResult
+    func retryPersistence() -> Bool {
+        if isLoadBlocked {
+            loadNotes()
+            return persistenceError == nil
         }
+
+        guard hasPendingPersistence else {
+            persistenceError = nil
+            return true
+        }
+        persist()
+        return persistenceError == nil
     }
 
     var pinnedCount: Int { notes.filter(\.isPinned).count }
+
+    @discardableResult
+    func migrateBuiltInTags(_ renames: [String: String]) -> Bool {
+        guard !isLoadBlocked else { return false }
+        var changed = false
+        for index in notes.indices {
+            if let name = renames[notes[index].tag] {
+                notes[index].tag = name
+                changed = true
+            }
+        }
+        if changed { persist() }
+        return persistenceError == nil
+    }
 
     func visibleNotes(query: String, filter: NoteFilter) -> [NookNote] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -88,13 +168,24 @@ final class NotesStore: ObservableObject {
         tint: NookNote.Tint? = nil
     ) {
         guard let index = notes.firstIndex(where: { $0.id == id }) else { return }
+        let current = notes[index]
+        let nextTag = if let tag, tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            tag
+        } else {
+            current.tag
+        }
+        let nextTint = tint ?? current.tint
+        guard current.title != title
+            || current.body != body
+            || current.bodyRTF != bodyRTF
+            || current.tag != nextTag
+            || current.tint != nextTint else { return }
+
         notes[index].title = title
         notes[index].body = body
         notes[index].bodyRTF = bodyRTF
-        if let tag, tag.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            notes[index].tag = tag
-        }
-        if let tint { notes[index].tint = tint }
+        notes[index].tag = nextTag
+        notes[index].tint = nextTint
         notes[index].updatedAt = .now
         persist()
     }
@@ -113,7 +204,6 @@ final class NotesStore: ObservableObject {
         pendingPersistTask?.cancel()
         pendingPersistTask = nil
         guard hasPendingPersistence else { return }
-        hasPendingPersistence = false
         persist()
     }
 
@@ -138,14 +228,94 @@ final class NotesStore: ObservableObject {
     }
 
     private func persist() {
-        let directory = fileURL.deletingLastPathComponent()
+        hasPendingPersistence = true
+        guard isLoadBlocked == false else { return }
+
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             let data = try encoder.encode(notes)
             try data.write(to: fileURL, options: [.atomic])
+            hasPendingPersistence = false
+            persistenceError = nil
         } catch {
-            NSLog("Nook could not save notes: %@", error.localizedDescription)
+            persistenceError = PersistenceError(operation: .save, url: fileURL, reason: error.localizedDescription)
         }
+    }
+
+    private func loadNotes() {
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let saved = try decoder.decode([NookNote].self, from: data)
+            notes = Self.normalized(saved)
+            isLoadBlocked = false
+            hasPendingPersistence = false
+            persistenceError = nil
+        } catch {
+            // Only a definite missing-file result means there is no existing
+            // data to protect. Permission failures, decode failures, and other
+            // read errors must remain blocked even if fileExists is ambiguous.
+            if isMissingFileError(error) {
+                let shouldPersistCurrentNotes = isLoadBlocked && hasPendingPersistence
+                isLoadBlocked = false
+                persistenceError = nil
+                if shouldPersistCurrentNotes {
+                    persist()
+                } else {
+                    seedNotes()
+                    hasPendingPersistence = false
+                }
+                return
+            }
+
+            notes = []
+            isLoadBlocked = true
+            persistenceError = PersistenceError(operation: .load, url: fileURL, reason: error.localizedDescription)
+        }
+    }
+
+    private func isMissingFileError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain {
+            if nsError.code == CocoaError.Code.fileNoSuchFile.rawValue
+                || nsError.code == CocoaError.Code.fileReadNoSuchFile.rawValue {
+                return true
+            }
+            // Data(contentsOf:) reports a regular-file parent as
+            // fileReadCorruptFile on some macOS versions. The child path is
+            // definitely absent in that case, while the same code for an
+            // existing directory must remain a blocking read failure.
+            if nsError.code == CocoaError.Code.fileReadUnknown.rawValue
+                || nsError.code == CocoaError.Code.fileReadCorruptFile.rawValue {
+                return parentIsRegularFile
+            }
+            return false
+        }
+        if nsError.domain == NSPOSIXErrorDomain {
+            return nsError.code == ENOENT || (nsError.code == ENOTDIR && parentIsRegularFile)
+        }
+        return false
+    }
+
+    private var parentIsRegularFile: Bool {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: directoryURL.path, isDirectory: &isDirectory) else {
+            return false
+        }
+        return isDirectory.boolValue == false
+    }
+
+    private func seedNotes() {
+        var seeded = Self.sampleNotes
+        for index in seeded.indices { seeded[index].sortOrder = index }
+        notes = Self.ordered(seeded)
+    }
+
+    private static func normalized(_ saved: [NookNote]) -> [NookNote] {
+        var loaded = saved.sorted { $0.updatedAt > $1.updatedAt }
+        for index in loaded.indices where loaded[index].sortOrder == nil {
+            loaded[index].sortOrder = index
+        }
+        return Self.ordered(loaded)
     }
 
     private enum ReorderPlacement {
@@ -204,7 +374,7 @@ final class NotesStore: ObservableObject {
             id: UUID(),
             title: "Kingo için yön",
             body: "Menü çubuğunda tek tık → sağdan açılan panel → düşünceyi hemen bırak.\n\nİlk hareket her zaman yazmak olmalı; klasörleme sonra.",
-            tag: "Fikir",
+            tag: "Ideas",
             tint: .amber,
             isPinned: true,
             updatedAt: .now.addingTimeInterval(-60 * 7)
@@ -213,7 +383,7 @@ final class NotesStore: ObservableObject {
             id: UUID(),
             title: "Referanslar / koyu yüzey",
             body: "Grafit zemin, kirli beyaz metin, tek sıcak vurgu. Derinlik gölgeyle değil katman aralığıyla gelsin.",
-            tag: "Tasarım",
+            tag: "Design",
             tint: .lavender,
             isPinned: false,
             updatedAt: .now.addingTimeInterval(-60 * 34)
@@ -222,7 +392,7 @@ final class NotesStore: ObservableObject {
             id: UUID(),
             title: "Bu hafta",
             body: "□ Side panel açılışını test et\n□ Notları JSON’a yaz\n□ Menü çubuğu ikonunu sadeleştir",
-            tag: "Görev",
+            tag: "Tasks",
             tint: .mint,
             isPinned: false,
             updatedAt: .now.addingTimeInterval(-60 * 60 * 3)
@@ -231,7 +401,7 @@ final class NotesStore: ObservableObject {
             id: UUID(),
             title: "Akşam fikri",
             body: "Notlar bir light table gibi dursun: seçilen parça biraz öne çıksın, geri kalanlar sessizce akışta kalsın.",
-            tag: "Kişisel",
+            tag: "Personal",
             tint: .coral,
             isPinned: false,
             updatedAt: .now.addingTimeInterval(-60 * 60 * 24 * 2)

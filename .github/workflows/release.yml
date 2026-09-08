@@ -24,16 +24,33 @@ jobs:
         shell: bash
         run: |
           version="${GITHUB_REF_NAME#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Tag is not a SemVer release: $GITHUB_REF_NAME" >&2
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag is not a stable SemVer release: $GITHUB_REF_NAME" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Test
+        run: swift test
 
       - name: Build local-use release assets
         env:
           NOTARIZE: "0"
         run: ./Scripts/package-release.sh --version "${{ steps.version.outputs.version }}" --output-dir dist
+
+      - name: Sign and verify update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          test -n "$SPARKLE_PRIVATE_KEY" || { echo "SPARKLE_PRIVATE_KEY is required" >&2; exit 1; }
+          umask 077
+          key_file="$(mktemp "$RUNNER_TEMP/nook-sparkle-key.XXXXXX")"
+          trap 'rm -f "$key_file"' EXIT
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$key_file"
+          unset SPARKLE_PRIVATE_KEY
+          SPARKLE_PRIVATE_KEY_FILE="$key_file" ./Scripts/generate-appcast.sh "$VERSION" dist
 
       - name: Upload release assets for publishing
         uses: actions/upload-artifact@v4
@@ -44,6 +61,7 @@ jobs:
             dist/Nook-*.dmg
             dist/Nook-*.zip
             dist/Nook-*.sha256
+            dist/appcast.xml
 
   publish:
     needs: package
@@ -55,7 +73,7 @@ jobs:
           name: nook-release-assets
           path: dist
 
-      - name: Create GitHub Release
+      - name: Publish complete GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.package.outputs.version }}
@@ -64,7 +82,11 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Nook $VERSION" \
+            --draft \
             --generate-notes \
             dist/Nook-*.dmg \
             dist/Nook-*.zip \
-            dist/Nook-*.sha256
+            dist/Nook-*.sha256 \
+            dist/appcast.xml
+          gh release edit "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" --draft=false --latest

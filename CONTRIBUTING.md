@@ -13,9 +13,12 @@ Thanks for taking a look. Nook is a small personal project, so focused pull requ
 Run these commands from the repository root:
 
 ```sh
+swift test
 swift build -c release
 git diff --check
 ```
+
+The test target uses XCTest from full Xcode. If Command Line Tools is your selected developer directory, run tests with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swift test`.
 
 If you change the packaging workflow, also run:
 

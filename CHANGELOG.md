@@ -2,8 +2,19 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-08
 
+- Default tags are English: Inbox, Ideas, Design, Tasks, and Personal. Existing tags marked as old built-ins migrate without changing custom labels or note content.
+- Signed GitHub update checks with manual Install and Relaunch, an automatic-check setting, and a menu-bar Check for Updates action.
+- Launch at login can be enabled or disabled in Settings, with macOS approval and error states shown accurately.
+- Native drafts that cannot be serialized block navigation and prompt before quitting or updating.
+
+- A new vector folded-corner mark stays legible in the menu bar and adapts to its appearance; release bundles include the matching macOS app icon.
+- Photos and file attachments persist inside notes, including their display size; existing RTF notes remain readable.
+- Photos have space above and below, and typing after a photo keeps the surrounding body style.
+- Editor formatting preserves embedded content and table cells, supports undo/redo and cursor formatting, and continues lists on Return.
+- The editor has direct formatting controls, visible save feedback, and a word count. Attachment pickers keep the editing panel open.
+- Save errors can be retried, unreadable note files are protected, and quitting warns about unsaved changes.
 - Release packaging supports optional Developer ID signing, hardened runtime, Apple notarization, and stapled tickets. The default release path remains ad-hoc for local use.
 
 ## [0.1.0] - 2026-09-08

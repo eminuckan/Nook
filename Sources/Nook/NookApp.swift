@@ -59,7 +59,15 @@ private final class NookStatusItemView: NSView {
             width: size.width,
             height: size.height
         )
-        image.draw(
+        // The custom status view draws its own template mask so the mark
+        // follows the menu bar's effective appearance in both light and dark.
+        let tinted = NSImage(size: size, flipped: isFlipped) { bounds in
+            image.draw(in: bounds)
+            NSColor.labelColor.setFill()
+            bounds.fill(using: .sourceIn)
+            return true
+        }
+        tinted.draw(
             in: rect,
             from: .zero,
             operation: .sourceOver,
@@ -67,6 +75,11 @@ private final class NookStatusItemView: NSView {
             respectFlipped: isFlipped,
             hints: nil
         )
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -80,19 +93,16 @@ private final class NookStatusItemView: NSView {
 
 private enum NookLogoAsset {
     static func image(size: NSSize) -> NSImage? {
-        guard let url = Bundle.main.url(
+        guard let url = Bundle.module.url(
             forResource: "NookLogo",
-            withExtension: "svg",
-            subdirectory: "Nook_Nook.bundle"
+            withExtension: "svg"
         ),
               let image = NSImage(contentsOf: url) else {
             return nil
         }
 
         image.size = size
-        // Keep the paper white so the mark has enough separation from both
-        // light and dark menu bars. The black contour is part of the logo,
-        // not a template tint.
+        // NookStatusItemView uses this vector's alpha as a template mask.
         image.isTemplate = false
         return image
     }
@@ -103,10 +113,15 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusItemView: NookStatusItemView?
     private var panelController: NookPanelController?
+    private var updater: NookUpdater?
     private let language = NookLanguageStore()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if let iconURL = Bundle.module.url(forResource: "NookAppIcon", withExtension: "svg"),
+           let icon = NSImage(contentsOf: iconURL) {
+            NSApp.applicationIconImage = icon
+        }
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem = item
@@ -126,7 +141,14 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
         item.view = statusView
         statusItemView = statusView
 
-        panelController = NookPanelController(language: language)
+        let updater = NookUpdater(
+            enabledForCurrentBundle: Bundle.main.bundleIdentifier == "com.nook.quicknotes"
+                && Bundle.main.bundleURL.pathExtension == "app"
+                && !CommandLine.arguments.contains("--preview"),
+            prepareToQuit: { [weak self] in self?.panelController?.prepareToQuit() ?? true }
+        )
+        self.updater = updater
+        panelController = NookPanelController(language: language, updater: updater)
 
         // A separate preview bundle can open the panel on launch for visual QA
         // without changing the shipped menu-bar-first behavior.
@@ -143,6 +165,12 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
 
     private func showStatusMenu(from view: NSView) {
         let menu = NSMenu()
+        menu.autoenablesItems = false
+        let checkItem = NSMenuItem(title: language.strings.checkForUpdates, action: #selector(checkForUpdates), keyEquivalent: "")
+        checkItem.target = self
+        checkItem.isEnabled = updater?.canCheckForUpdates == true
+        menu.addItem(checkItem)
+        menu.addItem(.separator())
         let quitItem = NSMenuItem(
             title: language.strings.quitNook,
             action: #selector(quitNook),
@@ -154,8 +182,16 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quitNook() {
-        panelController?.hide()
         NSApp.terminate(nil)
+    }
+
+    @objc private func checkForUpdates() {
+        panelController?.hide()
+        updater?.checkForUpdates()
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        panelController?.prepareToQuit() == false ? .terminateCancel : .terminateNow
     }
 }
 
@@ -165,6 +201,8 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
     private let store: NotesStore
     private let tagStore: TagStore
     private let settings: NookSettingsStore
+    private let loginItem: NookLoginItem
+    private let editingSession = NookEditingSession()
     private let language: NookLanguageStore
     private var shortcutManager: NookShortcutManager?
     private var globalClickMonitor: Any?
@@ -177,11 +215,20 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
     private let panelEdgeMargin: CGFloat = 14
     private let panelSnapThreshold: CGFloat = 28
 
-    init(language: NookLanguageStore) {
+    init(language: NookLanguageStore, updater: NookUpdater) {
         self.language = language
-        store = NotesStore()
+        let isPreview = Bundle.main.bundleIdentifier == "com.nook.quicknotes.preview"
+            || CommandLine.arguments.contains("--preview")
+        // Preview exercises the real persistence path without touching personal notes.
+        let previewDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Nook-Editor-Preview", isDirectory: true)
+        store = NotesStore(directoryURL: isPreview ? previewDirectory : nil)
         tagStore = TagStore(notes: store.notes)
+        if store.migrateBuiltInTags(tagStore.legacyBuiltInRenames) {
+            tagStore.finishBuiltInMigration()
+        }
         settings = NookSettingsStore()
+        loginItem = NookLoginItem()
         panel = NookPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 800),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -195,7 +242,7 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         }
         shortcutManager = manager
 
-        let rootView = NookRootView(store: store, tagStore: tagStore, settings: settings, shortcutManager: manager, onClose: { [weak self] in
+        let rootView = NookRootView(store: store, tagStore: tagStore, settings: settings, shortcutManager: manager, updater: updater, loginItem: loginItem, editingSession: editingSession, onClose: { [weak self] in
             self?.hide()
         }, onSpacesPreferenceChanged: { [weak self] value in
             self?.applyCollectionBehavior(keepAcrossSpaces: value)
@@ -203,6 +250,13 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         .environmentObject(language)
         let hostingView = NSHostingView(rootView: rootView)
         hostingView.sizingOptions = []
+        // Clip the native backing layer too: SwiftUI's rounded content mask
+        // alone can leave a rectangular hosting layer around transparent corners.
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        hostingView.layer?.cornerRadius = 38
+        hostingView.layer?.cornerCurve = .continuous
+        hostingView.layer?.masksToBounds = true
         panel.contentView = hostingView
         panel.delegate = self
         panel.onShellDragEnded = { [weak self] in
@@ -210,9 +264,9 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         }
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        // The card itself has no outline or halo; keep AppKit from adding a
-        // second window shadow that reads like a light border on dark mode.
-        panel.hasShadow = false
+        // Let the window compositor draw a single soft shadow outside the
+        // rounded shell without reserving space inside the editor.
+        panel.hasShadow = true
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
@@ -255,6 +309,29 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         panel.orderOut(nil)
     }
 
+    func prepareToQuit() -> Bool {
+        let draftReady = editingSession.prepareToLeave()
+        store.flushPendingPersistence()
+        let saveError = store.persistenceError.flatMap { $0.isBlocking ? nil : $0 }
+        guard !draftReady || saveError != nil else { return true }
+        show()
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = language.strings.saveFailed
+        alert.informativeText = language.strings.unsavedQuitWarning + "\n\n"
+            + (editingSession.errorMessage ?? saveError?.reason ?? language.strings.editorError)
+        alert.addButton(withTitle: language.strings.retry)
+        alert.addButton(withTitle: language.strings.cancel)
+        alert.addButton(withTitle: language.strings.quitWithoutSaving)
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            guard editingSession.prepareToLeave() else { return false }
+            return store.retryPersistence()
+        case .alertThirdButtonReturn: return true
+        default: return false
+        }
+    }
+
     func windowDidMove(_ notification: Notification) {
         guard panel.isVisible, !isApplyingPanelFrame, !isSnappingPanel else { return }
         schedulePanelSnap()
@@ -262,7 +339,11 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         // Clicking another app is the natural end of a quick-capture moment.
-        if panel.isVisible && Bundle.main.bundleIdentifier != "com.nook.quicknotes.preview" { hide() }
+        // A document picker belongs to the editing session. Hiding its parent
+        // here makes inserting an attachment appear to dismiss the note.
+        if panel.isVisible && panel.attachedSheet == nil
+            && Bundle.main.bundleIdentifier != "com.nook.quicknotes.preview"
+            && !CommandLine.arguments.contains("--preview") { hide() }
     }
 
     private func positionPanel() {
@@ -427,12 +508,12 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         if Bundle.main.bundleIdentifier == "com.nook.quicknotes.preview" || CommandLine.arguments.contains("--preview") { return }
 
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
-            guard let self, self.panel.isVisible else { return }
+            guard let self, self.panel.isVisible, self.panel.attachedSheet == nil else { return }
             if !self.panel.frame.contains(NSEvent.mouseLocation) { self.hide() }
         }
 
         localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            guard let self, self.panel.isVisible else { return event }
+            guard let self, self.panel.isVisible, self.panel.attachedSheet == nil else { return event }
             let location = NSEvent.mouseLocation
             if !self.panel.frame.contains(location) { self.hide() }
             return event

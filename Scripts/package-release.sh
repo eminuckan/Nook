@@ -104,12 +104,11 @@ if [[ "$SHOULD_NOTARIZE" -eq 1 ]]; then
     fi
 fi
 
-BUILD_NUMBER="${NOOK_BUILD_NUMBER:-${GITHUB_RUN_NUMBER:-}}"
-if [[ -z "$BUILD_NUMBER" ]]; then
-    BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || printf '1')"
-fi
-if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
-    echo "Build number must be numeric: $BUILD_NUMBER" >&2
+# Keep local and CI versions comparable by Sparkle. CI run numbers and local
+# commit counts are unrelated sequences and can prevent future updates.
+BUILD_NUMBER="${NOOK_BUILD_NUMBER:-${VERSION%%-*}}"
+if [[ ! "$BUILD_NUMBER" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+    echo "Build number must have one to three numeric components: $BUILD_NUMBER" >&2
     exit 2
 fi
 
@@ -128,6 +127,7 @@ swift build -c release --package-path "$ROOT_DIR"
 
 BINARY_PATH="$ROOT_DIR/.build/release/Nook"
 RESOURCE_BUNDLE_PATH="$ROOT_DIR/.build/release/Nook_Nook.bundle"
+SPARKLE_FRAMEWORK_PATH="$ROOT_DIR/.build/release/Sparkle.framework"
 if [[ ! -x "$BINARY_PATH" ]]; then
     echo "Build completed without an executable at $BINARY_PATH" >&2
     exit 1
@@ -136,12 +136,19 @@ if [[ ! -d "$RESOURCE_BUNDLE_PATH" ]]; then
     echo "Build completed without the Nook resource bundle at $RESOURCE_BUNDLE_PATH" >&2
     exit 1
 fi
+if [[ ! -d "$SPARKLE_FRAMEWORK_PATH" ]]; then
+    echo "Build completed without Sparkle.framework" >&2
+    exit 1
+fi
 
 mkdir -p "$APP_PATH/Contents/MacOS"
 cp "$BINARY_PATH" "$APP_PATH/Contents/MacOS/Nook"
 cp "$ROOT_DIR/Resources/Info.plist" "$APP_PATH/Contents/Info.plist"
 mkdir -p "$APP_PATH/Contents/Resources"
 cp -R "$RESOURCE_BUNDLE_PATH" "$APP_PATH/Contents/Resources/Nook_Nook.bundle"
+cp "$ROOT_DIR/Resources/Nook.icns" "$APP_PATH/Contents/Resources/Nook.icns"
+mkdir -p "$APP_PATH/Contents/Frameworks"
+ditto "$SPARKLE_FRAMEWORK_PATH" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 
 plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP_PATH/Contents/Info.plist"
 plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PATH/Contents/Info.plist"
@@ -149,12 +156,24 @@ plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "$APP_PATH/Contents/Info
 # An ad-hoc signature keeps local builds usable without an Apple Developer
 # certificate. Distributable builds should provide a Developer ID identity;
 # those builds use the hardened runtime and a secure timestamp.
-CODESIGN_ARGS=(--force --deep --sign "$SIGNING_IDENTITY")
+CODESIGN_ARGS=(--force --sign "$SIGNING_IDENTITY")
 if [[ "$SIGNING_IDENTITY" != "-" ]]; then
     CODESIGN_ARGS+=(--options runtime --timestamp)
 fi
+# Sign from the inside out, preserving the downloader's entitlements. Do not
+# use --deep for signing: each Sparkle helper needs its own correct signature.
+SPARKLE_PATH="$APP_PATH/Contents/Frameworks/Sparkle.framework/Versions/B"
+codesign "${CODESIGN_ARGS[@]}" "$SPARKLE_PATH/XPCServices/Installer.xpc"
+codesign "${CODESIGN_ARGS[@]}" --preserve-metadata=entitlements "$SPARKLE_PATH/XPCServices/Downloader.xpc"
+codesign "${CODESIGN_ARGS[@]}" "$SPARKLE_PATH/Autoupdate"
+codesign "${CODESIGN_ARGS[@]}" "$SPARKLE_PATH/Updater.app"
+codesign "${CODESIGN_ARGS[@]}" "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 codesign "${CODESIGN_ARGS[@]}" "$APP_PATH"
 codesign --verify --deep --strict "$APP_PATH"
+if ! otool -l "$APP_PATH/Contents/MacOS/Nook" | grep -Fq '@executable_path/../Frameworks'; then
+    echo "Packaged executable is missing its Sparkle framework runtime path." >&2
+    exit 1
+fi
 
 notarize() {
     local artifact="$1"

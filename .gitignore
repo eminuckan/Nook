@@ -7,3 +7,4 @@ dist/
 *.app/
 .DS_Store
 *.xcuserstate
+Resources/Nook.iconset/

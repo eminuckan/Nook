@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum NookLayout {
+enum NookLayout {
     /// The compact rhythm reserved for repeated list surfaces. Keeping the
     /// list edge inset and sibling gap identical makes its final row land as
     /// cleanly as the first row.
@@ -27,6 +27,9 @@ struct NookRootView: View {
     @ObservedObject var tagStore: TagStore
     @ObservedObject var settings: NookSettingsStore
     @ObservedObject var shortcutManager: NookShortcutManager
+    @ObservedObject var updater: NookUpdater
+    @ObservedObject var loginItem: NookLoginItem
+    let editingSession: NookEditingSession
     let onClose: () -> Void
     let onSpacesPreferenceChanged: (Bool) -> Void
 
@@ -37,6 +40,7 @@ struct NookRootView: View {
     @State private var filter: NoteFilter = .all
     @State private var selectedID: UUID?
     @State private var showingSettings = false
+    @State private var editorErrorNoteID: UUID?
     @State private var navigationDirection: NookNavigationDirection = .forward
 
     private var effectiveIsDark: Bool {
@@ -53,6 +57,7 @@ struct NookRootView: View {
 
             NookCardFrame(
                 isDark: effectiveIsDark,
+                saveStatus: selectedID == nil ? nil : (store.persistenceError != nil || editorErrorNoteID == selectedID ? language.strings.saveFailed : language.strings.autosaved),
                 onSettings: showSettings,
                 onClose: onClose
             ) {
@@ -62,9 +67,15 @@ struct NookRootView: View {
                             note: note,
                             tagStore: tagStore,
                             isDark: effectiveIsDark,
+                            onEditorReady: { editingSession.attach($0) },
+                            onEditorError: { hasError in
+                                if hasError { editorErrorNoteID = note.id }
+                                else if editorErrorNoteID == note.id { editorErrorNoteID = nil }
+                            },
                             onBack: returnToNotes,
                             onTogglePinned: { store.togglePinned(id: note.id) },
                             onDelete: {
+                                editingSession.discardDeletedNote()
                                 store.delete(id: note.id)
                                 returnToNotes()
                             },
@@ -72,13 +83,20 @@ struct NookRootView: View {
                                 store.update(id: note.id, title: title, body: body, bodyRTF: bodyRTF, tag: tag, tint: tint)
                             }
                         )
+                        .id(note.id)
                         .transition(contentTransition)
                     } else if showingSettings {
                         SettingsCard(
                             settings: settings,
                             shortcutManager: shortcutManager,
+                            updater: updater,
+                            loginItem: loginItem,
                             isDark: effectiveIsDark,
                             onBack: returnToNotes,
+                            onCheckForUpdates: {
+                                onClose()
+                                updater.checkForUpdates()
+                            },
                             onSpacesPreferenceChanged: onSpacesPreferenceChanged
                         )
                         .transition(contentTransition)
@@ -97,6 +115,22 @@ struct NookRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .clipped()
                 .animation(.easeInOut(duration: 0.26), value: contentRoute)
+                .disabled(store.isPersistenceBlocked)
+                .safeAreaInset(edge: .bottom, spacing: store.persistenceError == nil ? 0 : 8) {
+                    if let error = store.persistenceError {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle")
+                            Text(error.isBlocking ? language.strings.loadFailed : language.strings.saveFailed)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button(language.strings.retry) { store.retryPersistence() }
+                                .buttonStyle(.bordered)
+                        }
+                        .font(.system(size: 12))
+                        .padding(12)
+                        .help("\(error.reason)\n\(error.url.path)")
+                        .accessibilityLabel("\(error.localizedDescription) \(error.reason)")
+                    }
+                }
             }
         }
         .frame(width: 420, height: 800)
@@ -104,12 +138,14 @@ struct NookRootView: View {
     }
 
     private func createNote() {
+        guard editingSession.prepareToLeave() else { return }
         let note = store.addNote()
         navigationDirection = .forward
         withAnimation(.easeInOut(duration: 0.26)) { selectedID = note.id }
     }
 
     private func showSettings() {
+        guard editingSession.prepareToLeave() else { return }
         navigationDirection = .forward
         withAnimation(.easeInOut(duration: 0.26)) {
             selectedID = nil
@@ -118,11 +154,13 @@ struct NookRootView: View {
     }
 
     private func openNote(_ id: UUID) {
+        guard editingSession.prepareToLeave() else { return }
         navigationDirection = .forward
         withAnimation(.easeInOut(duration: 0.26)) { selectedID = id }
     }
 
     private func returnToNotes() {
+        guard editingSession.prepareToLeave() else { return }
         navigationDirection = .backward
         withAnimation(.easeInOut(duration: 0.26)) {
             selectedID = nil
@@ -167,6 +205,7 @@ private struct NookCardCanvas: View {
 
 private struct NookCardFrame<Content: View>: View {
     let isDark: Bool
+    let saveStatus: String?
     let onSettings: () -> Void
     let onClose: () -> Void
     @ViewBuilder let content: () -> Content
@@ -182,6 +221,7 @@ private struct NookCardFrame<Content: View>: View {
                 CardTopBar(
                     title: "Nook",
                     subtitle: Date.now.formatted(.dateTime.hour().minute()),
+                    saveStatus: saveStatus,
                     isDark: isDark,
                     onSettings: onSettings,
                     onClose: onClose
@@ -201,6 +241,7 @@ private struct NookCardFrame<Content: View>: View {
 private struct CardTopBar: View {
     let title: String
     let subtitle: String
+    let saveStatus: String?
     let isDark: Bool
     let onSettings: () -> Void
     let onClose: () -> Void
@@ -216,9 +257,16 @@ private struct CardTopBar: View {
                 Text(title)
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
                     .foregroundStyle(shellInk)
-                Text(subtitle)
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(shellInk.opacity(0.68))
+                HStack(spacing: 8) {
+                    Text(subtitle)
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                    if let saveStatus {
+                        Text(saveStatus)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .lineLimit(1)
+                    }
+                }
+                .foregroundStyle(shellInk.opacity(0.68))
             }
 
             Spacer()
@@ -443,8 +491,11 @@ private struct NotesDashboardCard: View {
 private struct SettingsCard: View {
     @ObservedObject var settings: NookSettingsStore
     @ObservedObject var shortcutManager: NookShortcutManager
+    @ObservedObject var updater: NookUpdater
+    @ObservedObject var loginItem: NookLoginItem
     let isDark: Bool
     let onBack: () -> Void
+    let onCheckForUpdates: () -> Void
     let onSpacesPreferenceChanged: (Bool) -> Void
 
     @EnvironmentObject private var language: NookLanguageStore
@@ -533,6 +584,63 @@ private struct SettingsCard: View {
                     )
                 }
 
+                NookSettingsSection(title: language.strings.startupSection, detail: nil, ink: ink, muted: muted) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SettingsToggleRow(
+                            title: language.strings.launchAtLogin,
+                            detail: !loginItem.isSupported ? language.strings.installForStartup : loginItem.needsApproval ? language.strings.loginApprovalRequired : language.strings.launchAtLoginDescription,
+                            isOn: loginItem.isRequested,
+                            isDark: isDark,
+                            rowSurface: rowSurface,
+                            onToggle: { loginItem.setEnabled(!loginItem.isRequested) }
+                        )
+                        .disabled(!loginItem.isSupported)
+                        if loginItem.needsApproval {
+                            Button(language.strings.openLoginItems, action: loginItem.openLoginItemsSettings)
+                                .font(.system(size: 11, weight: .semibold))
+                                .buttonStyle(.plain)
+                                .foregroundStyle(ink)
+                        }
+                        if let error = loginItem.errorMessage {
+                            Text(error).font(.system(size: 11)).foregroundStyle(muted).textSelection(.enabled)
+                        }
+                    }
+                }
+
+                NookSettingsSection(
+                    title: language.strings.updatesSection,
+                    detail: language.strings.currentVersion(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"),
+                    ink: ink,
+                    muted: muted
+                ) {
+                    VStack(spacing: 8) {
+                        SettingsToggleRow(
+                            title: language.strings.automaticUpdateChecks,
+                            detail: updater.isEnabled ? language.strings.automaticUpdateChecksDescription : language.strings.updatesUnavailableInPreview,
+                            isOn: updater.automaticallyChecksForUpdates,
+                            isDark: isDark,
+                            rowSurface: rowSurface,
+                            onToggle: { updater.automaticallyChecksForUpdates.toggle() }
+                        )
+                        .disabled(!updater.isEnabled)
+                        Button(action: onCheckForUpdates) {
+                            HStack {
+                                Text(language.strings.checkForUpdates)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                Spacer()
+                                Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 12))
+                            }
+                            .foregroundStyle(ink.opacity(updater.canCheckForUpdates ? 1 : 0.45))
+                            .padding(.horizontal, 13)
+                            .frame(minHeight: 44)
+                            .background(rowSurface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(!updater.canCheckForUpdates)
+                    }
+                }
+
             }
             .padding(.horizontal, NookLayout.comfortableInset)
             .padding(.top, 22)
@@ -543,6 +651,10 @@ private struct SettingsCard: View {
         .background(isDark ? Color.nookCardDark : Color.nookCardLightSurface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .padding(.top, 8)
+        .onAppear { loginItem.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loginItem.refresh()
+        }
     }
 }
 
@@ -1249,6 +1361,8 @@ private struct NoteEditorCard: View {
     let note: NookNote
     @ObservedObject var tagStore: TagStore
     let isDark: Bool
+    let onEditorReady: (NookEditorBridge) -> Void
+    let onEditorError: (Bool) -> Void
     let onBack: () -> Void
     let onTogglePinned: () -> Void
     let onDelete: () -> Void
@@ -1259,6 +1373,8 @@ private struct NoteEditorCard: View {
     @State private var titleText: String
     @State private var bodyText: String
     @State private var bodyRTF: Data?
+    @State private var savedBody: String
+    @State private var savedRichData: Data?
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var selectedTag: String
     @State private var selectedTint: NookNote.Tint
@@ -1273,6 +1389,8 @@ private struct NoteEditorCard: View {
         note: NookNote,
         tagStore: TagStore,
         isDark: Bool,
+        onEditorReady: @escaping (NookEditorBridge) -> Void,
+        onEditorError: @escaping (Bool) -> Void,
         onBack: @escaping () -> Void,
         onTogglePinned: @escaping () -> Void,
         onDelete: @escaping () -> Void,
@@ -1281,6 +1399,8 @@ private struct NoteEditorCard: View {
         self.note = note
         self.tagStore = tagStore
         self.isDark = isDark
+        self.onEditorReady = onEditorReady
+        self.onEditorError = onEditorError
         self.onBack = onBack
         self.onTogglePinned = onTogglePinned
         self.onDelete = onDelete
@@ -1289,6 +1409,8 @@ private struct NoteEditorCard: View {
         _titleText = State(initialValue: document.title)
         _bodyText = State(initialValue: document.body)
         _bodyRTF = State(initialValue: document.richData)
+        _savedBody = State(initialValue: document.body)
+        _savedRichData = State(initialValue: document.richData)
         _selectedTag = State(initialValue: note.tag)
         _selectedTint = State(initialValue: note.tint)
     }
@@ -1302,67 +1424,53 @@ private struct NoteEditorCard: View {
             onTogglePinned: onTogglePinned,
             onDelete: onDelete,
             editorBridge: editorBridge,
-            titleText: $titleText,
+            titleText: Binding(get: { titleText }, set: {
+                titleText = $0
+                saveDraft(title: $0)
+            }),
             bodyText: $bodyText,
             bodyRTF: $bodyRTF,
             selection: $selection,
-            selectedTag: $selectedTag,
-            selectedTint: $selectedTint
+            selectedTag: Binding(get: { selectedTag }, set: {
+                selectedTag = $0
+                saveDraft(tag: $0)
+            }),
+            selectedTint: Binding(get: { selectedTint }, set: {
+                selectedTint = $0
+                saveDraft(tint: $0)
+            }),
+            onDocumentChange: saveDocument
         )
-        .onChange(of: titleText) { _ in saveDraft() }
-        .onChange(of: bodyText) { _ in saveDraft() }
-        .onChange(of: bodyRTF) { _ in saveDraft() }
-        .onChange(of: selectedTag) { _ in saveDraft() }
-        .onChange(of: selectedTint) { _ in saveDraft() }
-        .onExitCommand(perform: onBack)
+        .onAppear {
+            onEditorReady(editorBridge)
+            onEditorError(editorBridge.errorMessage != nil || editorBridge.hasUnsavedDraft)
+        }
+        .onChange(of: editorBridge.errorMessage) { onEditorError($0 != nil || editorBridge.hasUnsavedDraft) }
+        .onChange(of: editorBridge.hasUnsavedDraft) { onEditorError($0 || editorBridge.errorMessage != nil) }
+        .onDisappear { onEditorError(false) }
     }
 
-    private func saveDraft() {
+    private func saveDocument(_ body: String, _ data: Data) {
+        savedBody = body
+        savedRichData = data
         let trimmedTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+        onSave(trimmedTitle.isEmpty ? language.strings.newNote : trimmedTitle,
+               body, data, selectedTag, selectedTint)
+    }
+
+    private func saveDraft(title: String? = nil, tag: String? = nil, tint: NookNote.Tint? = nil) {
+        let trimmedTitle = (title ?? titleText).trimmingCharacters(in: .whitespacesAndNewlines)
         let title = trimmedTitle.isEmpty
-            ? (note.title.isEmpty || Self.isDefaultTitle(note.title) ? language.strings.newNote : note.title)
+            ? language.strings.newNote
             : trimmedTitle
-        onSave(title, bodyText, bodyRTF, selectedTag, selectedTint)
+        onSave(title, savedBody, savedRichData, tag ?? selectedTag, tint ?? selectedTint)
     }
 
     private static func editorDocument(for note: NookNote) -> EditorDocument {
-        var title = note.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        var body = note.body.replacingOccurrences(of: "\r\n", with: "\n")
-
-        if title.isEmpty || isDefaultTitle(title) {
-            // A legacy default title means the first non-empty paragraph was
-            // the user's real title. Preserve a leading empty paragraph,
-            // though: it is how a newly inserted table reserves its title
-            // slot without turning the first cell into the heading.
-            let split = splitFirstParagraph(body)
-            if split.title.isEmpty == false {
-                title = split.title
-                body = split.body
-            } else {
-                title = ""
-            }
-        } else if body.hasPrefix("\(title)\n") {
-            // Older composite-document builds could duplicate the title in
-            // the stored body. Strip only that exact leading paragraph.
-            body.removeFirst(title.count + 1)
-        }
-
-        return EditorDocument(
-            title: title,
-            body: body,
-            richData: editorRichData(for: note, title: title, body: body)
-        )
-    }
-
-    private static func splitFirstParagraph(_ text: String) -> (title: String, body: String) {
-        let normalized = text.replacingOccurrences(of: "\r\n", with: "\n")
-        guard let newline = normalized.firstIndex(of: "\n") else {
-            return (normalized.trimmingCharacters(in: .whitespacesAndNewlines), "")
-        }
-
-        let title = normalized[..<newline].trimmingCharacters(in: .whitespacesAndNewlines)
-        let bodyStart = normalized.index(after: newline)
-        return (String(title), String(normalized[bodyStart...]))
+        // A title placeholder is not evidence that the first body paragraph
+        // is a title. Moving it on every reopen used to eat image-only notes.
+        let title = isDefaultTitle(note.title) ? "" : note.title
+        return EditorDocument(title: title, body: note.body, richData: NookRichDocument.bodyData(for: note))
     }
 
     private static func isDefaultTitle(_ title: String) -> Bool {
@@ -1370,40 +1478,6 @@ private struct NoteEditorCard: View {
             || title.caseInsensitiveCompare("New note") == .orderedSame
     }
 
-    private static func editorRichData(for note: NookNote, title: String, body: String) -> Data? {
-        guard let savedData = note.bodyRTF,
-              let saved = try? NSAttributedString(
-                  data: savedData,
-                  options: [.documentType: NSAttributedString.DocumentType.rtf],
-                  documentAttributes: nil
-              ) else { return nil }
-
-        if saved.string == body {
-            return savedData
-        }
-
-        // Older builds persisted the title and body as one RTF stream, while
-        // the model has always stored the body separately. Extract the body
-        // paragraphs without discarding table blocks or attachments.
-        let candidates = [
-            "\(title)\n\(body)",
-            "\(note.title)\n\(note.body)",
-            "\n\(body)"
-        ]
-        guard candidates.contains(saved.string) else { return nil }
-        let newlineRange = (saved.string as NSString).range(of: "\n")
-        guard newlineRange.location != NSNotFound else { return nil }
-
-        let bodyStart = newlineRange.location + newlineRange.length
-        guard bodyStart < saved.length else { return nil }
-        let bodyRange = NSRange(location: bodyStart, length: saved.length - bodyStart)
-        let bodyAttributed = saved.attributedSubstring(from: bodyRange)
-        guard bodyAttributed.string == body else { return nil }
-        return try? bodyAttributed.data(
-            from: NSRange(location: 0, length: bodyAttributed.length),
-            documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-        )
-    }
 }
 
 private struct NoteEditorSurface: View {
@@ -1421,6 +1495,7 @@ private struct NoteEditorSurface: View {
     @Binding var selection: NSRange
     @Binding var selectedTag: String
     @Binding var selectedTint: NookNote.Tint
+    let onDocumentChange: (String, Data) -> Void
 
     @EnvironmentObject private var language: NookLanguageStore
     @State private var isTagPickerPresented = false
@@ -1431,7 +1506,7 @@ private struct NoteEditorSurface: View {
 
     private var surface: Color { isDark ? .nookCardDark : .nookCardLightSurface }
     private var editorSurface: Color {
-        isDark ? Color.white.opacity(0.055) : Color.black.opacity(0.045)
+        Color(nsColor: NookPalette.editorCanvasNS(isDark: isDark))
     }
     private var ink: Color { isDark ? .nookCardLightInk : .nookCardInk }
     private var muted: Color { isDark ? .nookCardLightMuted : .nookCardMuted }
@@ -1568,7 +1643,7 @@ private struct NoteEditorSurface: View {
                         .accessibilityLabel(language.strings.noteTitle)
 
                     if titleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        Text(language.strings.bodyPlaceholder)
+                        Text(language.strings.titlePlaceholder)
                             .font(.system(size: 25, weight: .bold, design: .rounded))
                             .foregroundStyle(muted.opacity(0.75))
                             .allowsHitTesting(false)
@@ -1587,12 +1662,13 @@ private struct NoteEditorSurface: View {
                         isDark: isDark,
                         placeholder: language.strings.bodyPlaceholder,
                         startsWithTitle: false,
-                        bridge: editorBridge
+                        bridge: editorBridge,
+                        onDocumentChange: onDocumentChange
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel(language.strings.noteBody)
 
-                    if bodyText.isEmpty && titleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+                    if bodyText.isEmpty {
                         Text(language.strings.bodyPlaceholder)
                             .font(.system(size: 14, weight: .regular, design: .rounded))
                             .foregroundStyle(muted.opacity(0.72))
@@ -1602,6 +1678,15 @@ private struct NoteEditorSurface: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 8)
+                    Text(language.strings.wordCount(bodyText.replacingOccurrences(of: "\u{fffc}", with: " ").split(whereSeparator: { $0.isWhitespace }).count))
+                }
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(muted)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(editorSurface, in: editorTileShape)
@@ -1610,6 +1695,18 @@ private struct NoteEditorSurface: View {
             // Its lower corners inherit the parent radius so the flush edge
             // remains a deliberate nested shape instead of a square cutoff.
             .padding(.top, NookLayout.itemGap)
+
+
+            if let error = editorBridge.errorMessage {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(language.strings.editorError).fontWeight(.semibold)
+                    Text(error).textSelection(.enabled)
+                }
+                .font(.system(size: 12))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+            }
 
         }
         .background(surface, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -1630,667 +1727,41 @@ private struct NoteEditorSurface: View {
                 .zIndex(5)
             }
         }
-        .onAppear {
+        .task {
             tagStore.create(name: selectedTag, tint: selectedTint)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                if titleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    isTitleFocused = true
-                } else {
-                    editorBridge.focus()
-                }
-            }
-        }
-    }
-}
-
-@MainActor
-private final class NookEditorBridge: ObservableObject {
-    weak var textView: NSTextView?
-    var onRichTextChange: (() -> Void)?
-
-    func attach(_ textView: NSTextView) {
-        self.textView = textView
-    }
-
-    func focus() {
-        textView?.window?.makeFirstResponder(textView)
-    }
-
-    func resignFocus() {
-        textView?.window?.makeFirstResponder(nil)
-    }
-
-    func apply(_ style: NookTextStyle) {
-        guard let textView, let storage = textView.textStorage else { return }
-        let selection = textView.selectedRange()
-
-        switch style {
-        case .bold, .italic, .strikethrough, .code:
-            guard selection.length > 0 else { return }
-            applyInline(style, to: selection, in: textView, storage: storage)
-
-        case .title, .heading, .subheading, .body, .monospaced, .bulleted, .dashed, .numbered, .blockquote:
-            let paragraphRange = paragraphRange(for: selection, in: textView)
-            guard paragraphRange.length > 0 else { return }
-            applyBlock(style, to: paragraphRange, in: textView, storage: storage)
-        }
-
-        textView.undoManager?.setActionName(style.actionName)
-        onRichTextChange?()
-    }
-
-    /// Inserts a real TextKit table into the document. Each cell is its own
-    /// paragraph carrying an NSTextTableBlock, so borders are drawn by
-    /// AppKit rather than being made from box-drawing characters. The table
-    /// therefore keeps its geometry when a cell grows and every cell remains
-    /// a normal editable text range.
-    func insertTable(rows: Int = 3, columns: Int = 2) {
-        guard let textView, let storage = textView.textStorage else { return }
-
-        let range = textView.selectedRange()
-        let string = storage.string as NSString
-        let rangeEnd = range.location + range.length
-        let needsLeadingBreak = range.location > 0 && string.character(at: range.location - 1) != 10
-        let needsTrailingBreak = rangeEnd < string.length && string.character(at: rangeEnd) != 10
-        let attributed = makeTable(
-            rows: rows,
-            columns: columns,
-            textColor: textView.textColor ?? NSColor.textColor
-        )
-
-        if needsLeadingBreak {
-            attributed.insert(NSAttributedString(string: "\n"), at: 0)
-        }
-        if needsTrailingBreak {
-            attributed.append(NSAttributedString(string: "\n", attributes: NookTextView.bodyTypingAttributes(for: textView.textColor)))
-        }
-
-        storage.replaceCharacters(in: range, with: attributed)
-        let firstCellLocation = range.location + (needsLeadingBreak ? 1 : 0)
-        textView.setSelectedRange(NSRange(location: firstCellLocation, length: 0))
-        textView.didChangeText()
-        focus()
-        onRichTextChange?()
-    }
-
-    /// Opens the photo/video picker. Images are rendered directly in the
-    /// writing stream; videos use the file attachment representation.
-    func insertPhotoOrVideo() {
-        chooseAttachment(allowedContentTypes: [.image, .movie], inlineImages: true)
-    }
-
-    /// Opens the general file picker. Even image files selected here remain a
-    /// file attachment, keeping the paperclip action distinct from Photos.
-    func insertFileAttachment() {
-        chooseAttachment(allowedContentTypes: [.data], inlineImages: false)
-    }
-
-    private func chooseAttachment(allowedContentTypes: [UTType], inlineImages: Bool) {
-        guard textView != nil else { return }
-
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowsMultipleSelection = false
-        panel.allowedContentTypes = allowedContentTypes
-        panel.begin { [weak self, weak panel] response in
-            guard response == .OK, let url = panel?.url else { return }
-            self?.insertFile(url, inlineImage: inlineImages)
-        }
-    }
-
-    private func insertFile(_ url: URL, inlineImage: Bool) {
-        guard let textView, let storage = textView.textStorage else { return }
-        let attachment = NSTextAttachment()
-
-        if inlineImage, let image = NSImage(contentsOf: url) {
-            attachment.image = Self.scaledImage(image, maxWidth: 320)
-        } else if let wrapper = try? FileWrapper(url: url, options: .immediate) {
-            attachment.fileWrapper = wrapper
-        } else {
-            let range = textView.selectedRange()
-            let link = NSAttributedString(
-                string: url.lastPathComponent,
-                attributes: [.link: url, .underlineStyle: NSUnderlineStyle.single.rawValue]
-            )
-            storage.replaceCharacters(in: range, with: link)
-            textView.setSelectedRange(NSRange(location: range.location + link.length, length: 0))
-            textView.didChangeText()
-            focus()
-            onRichTextChange?()
-            return
-        }
-
-        let inserted = NSAttributedString(attachment: attachment)
-        let range = textView.selectedRange()
-        storage.replaceCharacters(in: range, with: inserted)
-        textView.setSelectedRange(NSRange(location: range.location + inserted.length, length: 0))
-        textView.didChangeText()
-        focus()
-        onRichTextChange?()
-    }
-
-    private func applyInline(
-        _ style: NookTextStyle,
-        to range: NSRange,
-        in textView: NSTextView,
-        storage: NSTextStorage
-    ) {
-        storage.beginEditing()
-        switch style {
-        case .bold, .italic:
-            let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont
-                ?? NSFont.systemFont(ofSize: 14)
-            let trait: NSFontDescriptor.SymbolicTraits = style == .bold ? .bold : .italic
-            let currentTraits = font.fontDescriptor.symbolicTraits
-            let nextTraits = currentTraits.contains(trait)
-                ? currentTraits.subtracting(trait)
-                : currentTraits.union(trait)
-            let descriptor = font.fontDescriptor.withSymbolicTraits(nextTraits)
-            if let nextFont = NSFont(descriptor: descriptor, size: font.pointSize) {
-                storage.addAttribute(.font, value: nextFont, range: range)
-            }
-        case .strikethrough:
-            let current = storage.attribute(.strikethroughStyle, at: range.location, effectiveRange: nil) as? NSNumber
-            if current?.intValue == NSUnderlineStyle.single.rawValue {
-                storage.removeAttribute(.strikethroughStyle, range: range)
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            if titleText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isTitleFocused = true
             } else {
-                storage.addAttribute(.strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: range)
-            }
-        case .code:
-            let codeFont = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-            storage.addAttribute(.font, value: codeFont, range: range)
-            storage.addAttribute(.backgroundColor, value: NSColor.black.withAlphaComponent(0.12), range: range)
-        default:
-            break
-        }
-        storage.endEditing()
-        textView.setSelectedRange(range)
-    }
-
-    private func applyBlock(
-        _ style: NookTextStyle,
-        to range: NSRange,
-        in textView: NSTextView,
-        storage: NSTextStorage
-    ) {
-        let string = textView.string as NSString
-        let selected = string.substring(with: range)
-        let transformed: String
-
-        switch style {
-        case .bulleted:
-            transformed = prefixedLines(selected, prefix: "• ")
-        case .dashed:
-            transformed = prefixedLines(selected, prefix: "– ")
-        case .numbered:
-            transformed = selected
-                .components(separatedBy: .newlines)
-                .enumerated()
-                .map { "\($0.offset + 1). \($0.element)" }
-                .joined(separator: "\n")
-        case .blockquote:
-            transformed = prefixedLines(selected, prefix: "│ ")
-        default:
-            transformed = selected
-        }
-
-        storage.beginEditing()
-        if transformed != selected {
-            let attributes = storage.attributes(at: range.location, effectiveRange: nil)
-            storage.replaceCharacters(in: range, with: NSAttributedString(string: transformed, attributes: attributes))
-        }
-
-        let updatedRange = NSRange(location: range.location, length: (transformed as NSString).length)
-        let font: NSFont
-        switch style {
-        case .title: font = NSFont.systemFont(ofSize: 26, weight: .bold)
-        case .heading: font = NSFont.systemFont(ofSize: 21, weight: .semibold)
-        case .subheading: font = NSFont.systemFont(ofSize: 17, weight: .semibold)
-        case .monospaced: font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
-        default: font = NSFont.systemFont(ofSize: 14, weight: .regular)
-        }
-        storage.addAttribute(.font, value: font, range: updatedRange)
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacing = style == .title ? NookLayout.titleBodyGap : 0
-        storage.addAttribute(.paragraphStyle, value: paragraph, range: updatedRange)
-
-        if style == .blockquote {
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.firstLineHeadIndent = 0
-            paragraph.headIndent = 14
-            paragraph.paragraphSpacing = 4
-            storage.addAttribute(.paragraphStyle, value: paragraph, range: updatedRange)
-            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: updatedRange)
-        }
-        storage.endEditing()
-        textView.setSelectedRange(updatedRange)
-    }
-
-    private func paragraphRange(for selection: NSRange, in textView: NSTextView) -> NSRange {
-        let string = textView.string as NSString
-        guard string.length > 0 else { return NSRange(location: 0, length: 0) }
-        let location = min(selection.location, string.length - 1)
-        let length = min(max(selection.length, 1), string.length - location)
-        return string.paragraphRange(for: NSRange(location: location, length: length))
-    }
-
-    private func prefixedLines(_ text: String, prefix: String) -> String {
-        text.components(separatedBy: .newlines)
-            .map { line in line.hasPrefix(prefix) ? line : prefix + line }
-            .joined(separator: "\n")
-    }
-
-    private func makeTable(rows: Int, columns: Int, textColor: NSColor) -> NSMutableAttributedString {
-        let rowCount = max(rows, 1)
-        let columnCount = max(columns, 1)
-        let table = NSTextTable()
-        table.numberOfColumns = columnCount
-        table.layoutAlgorithm = NSTextTable.LayoutAlgorithm(rawValue: 1)!
-        table.collapsesBorders = false
-        table.hidesEmptyCells = false
-
-        let borderColor = textColor.withAlphaComponent(0.28)
-        let result = NSMutableAttributedString()
-
-        for row in 0..<rowCount {
-            for column in 0..<columnCount {
-                let block = NSTextTableBlock(
-                    table: table,
-                    startingRow: row,
-                    rowSpan: 1,
-                    startingColumn: column,
-                    columnSpan: 1
-                )
-                // Fixed layout plus a percentage width gives every column the
-                // same track while leaving TextKit free to grow a row's
-                // height when its text wraps.
-                block.setContentWidth(
-                    100 / CGFloat(columnCount),
-                    type: NSTextBlock.ValueType(rawValue: 1)!
-                )
-                block.setWidth(
-                    1,
-                    type: NSTextBlock.ValueType(rawValue: 0)!,
-                    for: NSTextBlock.Layer(rawValue: 0)!
-                )
-                block.setWidth(
-                    8,
-                    type: NSTextBlock.ValueType(rawValue: 0)!,
-                    for: NSTextBlock.Layer(rawValue: -1)!
-                )
-                block.setBorderColor(borderColor)
-                block.verticalAlignment = NSTextBlock.VerticalAlignment(rawValue: 0)!
-
-                let paragraph = NSMutableParagraphStyle()
-                paragraph.paragraphSpacing = 0
-                paragraph.textBlocks = [block]
-                let attributes: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 14, weight: .regular),
-                    .foregroundColor: textColor,
-                    .paragraphStyle: paragraph
-                ]
-                // Keep a real editable character in an empty cell. The
-                // paragraph terminator remains the cell boundary; this space
-                // simply makes the insertion point easy to place with a
-                // mouse before the user starts typing.
-                result.append(NSAttributedString(string: " \n", attributes: attributes))
+                editorBridge.focus()
             }
         }
-
-        // A plain paragraph after the table gives the user an escape route
-        // for continuing to type below it without creating another cell.
-        result.append(NSAttributedString(
-            string: "\n",
-            attributes: NookTextView.bodyTypingAttributes(for: textColor)
-        ))
-        return result
-    }
-
-    private static func scaledImage(_ image: NSImage, maxWidth: CGFloat) -> NSImage {
-        let size = image.size
-        guard size.width > maxWidth, size.width > 0 else { return image }
-        let scale = maxWidth / size.width
-        let scaled = NSImage(size: NSSize(width: maxWidth, height: size.height * scale))
-        scaled.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: scaled.size), from: .zero, operation: .sourceOver, fraction: 1)
-        scaled.unlockFocus()
-        return scaled
-    }
-}
-
-private enum NookTextStyle {
-    case bold
-    case italic
-    case strikethrough
-    case code
-    case title
-    case heading
-    case subheading
-    case body
-    case monospaced
-    case bulleted
-    case dashed
-    case numbered
-    case blockquote
-
-    var actionName: String {
-        switch self {
-        case .bold: return "Bold"
-        case .italic: return "Italic"
-        case .strikethrough: return "Strikethrough"
-        case .code: return "Code"
-        case .title: return "Title"
-        case .heading: return "Heading"
-        case .subheading: return "Subheading"
-        case .body: return "Body"
-        case .monospaced: return "Monospaced"
-        case .bulleted: return "Bulleted List"
-        case .dashed: return "Dashed List"
-        case .numbered: return "Numbered List"
-        case .blockquote: return "Block Quote"
-        }
-    }
-}
-
-private struct NookRichTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    @Binding var richData: Data?
-    @Binding var selection: NSRange
-    let isDark: Bool
-    let placeholder: String
-    let startsWithTitle: Bool
-    let bridge: NookEditorBridge
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.drawsBackground = false
-        scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.verticalScrollElasticity = .automatic
-        scrollView.horizontalScrollElasticity = .none
-
-        let textView = NookTextView()
-        textView.delegate = context.coordinator
-        textView.font = NSFont.systemFont(ofSize: 14)
-        textView.textColor = isDark ? .textColor : NookPalette.cardInkNS
-        textView.insertionPointColor = isDark ? NSColor.white : NSColor.black
-        textView.selectedTextAttributes = [
-            .backgroundColor: NSColor(calibratedRed: 0.99, green: 0.72, blue: 0.16, alpha: 0.75),
-            .foregroundColor: isDark ? NSColor.black : NookPalette.cardInkNS
-        ]
-        textView.textContainerInset = NSSize(
-            width: NookLayout.editorTextInset,
-            height: NookLayout.editorTextVerticalInset
-        )
-        textView.textContainer?.lineFragmentPadding = 0
-        textView.textContainer?.widthTracksTextView = true
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.drawsBackground = false
-        textView.allowsUndo = true
-        textView.isRichText = true
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.isFieldEditor = false
-        textView.startsWithTitle = startsWithTitle
-        // Let AppKit accept image data from the pasteboard. NookTextView also
-        // normalizes image pastes into NSTextAttachment so they share the same
-        // RTF persistence path as files picked from the attachment button.
-        textView.importsGraphics = true
-        textView.usesFontPanel = false
-        textView.string = text
-        var restoredRichText = false
-        if let richData,
-           let attributed = try? NSAttributedString(
-               data: richData,
-               options: [.documentType: NSAttributedString.DocumentType.rtf],
-               documentAttributes: nil
-           ),
-           attributed.string == text {
-            textView.textStorage?.setAttributedString(attributed)
-            restoredRichText = true
-        }
-        if !restoredRichText {
-            if startsWithTitle {
-                textView.applyDefaultDocumentStyle()
+        .onExitCommand {
+            if isFormattingPopoverPresented || isListPopoverPresented || isAttachmentPopoverPresented || isTagPickerPresented {
+                dismissEditorMenus()
             } else {
-                textView.applyDefaultBodyDocumentStyle()
+                onBack()
             }
         }
-        textView.updateTypingAttributesForCurrentPosition()
-
-        bridge.attach(textView)
-        context.coordinator.textView = textView
-        bridge.onRichTextChange = { [weak coordinator = context.coordinator] in
-            coordinator?.syncFromTextView()
-        }
-        scrollView.documentView = textView
-        return scrollView
-    }
-
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
-        guard let textView = scrollView.documentView as? NookTextView else { return }
-        bridge.attach(textView)
-        textView.textColor = isDark ? .textColor : NookPalette.cardInkNS
-        textView.insertionPointColor = isDark ? NSColor.white : NSColor.black
-        if textView.string != text {
-            let previousSelection = textView.selectedRange()
-            textView.string = text
-            if richData == nil {
-                if startsWithTitle {
-                    textView.applyDefaultDocumentStyle()
-                } else {
-                    textView.applyDefaultBodyDocumentStyle()
-                }
-            }
-            let location = min(previousSelection.location, textView.string.utf16.count)
-            textView.setSelectedRange(NSRange(location: location, length: 0))
+        .onChange(of: selection) { _ in dismissEditorMenus() }
+        .onChange(of: isTitleFocused) { focused in
+            if focused { dismissEditorMenus() }
         }
     }
 
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: NookRichTextEditor
-        weak var textView: NookTextView?
-
-        init(_ parent: NookRichTextEditor) {
-            self.parent = parent
-        }
-
-        func syncFromTextView() {
-            guard let textView else { return }
-            parent.text = textView.string
-            parent.selection = textView.selectedRange()
-            parent.richData = Self.makeRichData(from: textView)
-        }
-
-        func textDidChange(_ notification: Notification) {
-            textView?.updateTypingAttributesForCurrentPosition()
-            syncFromTextView()
-        }
-
-        func textViewDidChangeSelection(_ notification: Notification) {
-            parent.selection = textView?.selectedRange() ?? NSRange(location: 0, length: 0)
-            textView?.updateTypingAttributesForCurrentPosition()
-        }
-
-        private static func makeRichData(from textView: NSTextView) -> Data? {
-            let length = textView.textStorage?.length ?? 0
-            guard length > 0 else { return nil }
-            return try? textView.attributedString().data(
-                from: NSRange(location: 0, length: length),
-                documentAttributes: [.documentType: NSAttributedString.DocumentType.rtf]
-            )
-        }
-    }
-}
-
-private final class NookTextView: NSTextView {
-    private static let titleFont = NSFont.systemFont(ofSize: 25, weight: .bold)
-    private static let bodyFont = NSFont.systemFont(ofSize: 14, weight: .regular)
-    var startsWithTitle = true
-
-    override var acceptsFirstResponder: Bool { true }
-
-    /// A blank document starts in title typography. Once the first paragraph
-    /// exists, its following paragraphs use the normal body size. This is
-    /// deliberately applied only when opening plain/legacy content so an
-    /// existing rich document keeps the user's explicit styles.
-    func applyDefaultDocumentStyle() {
-        guard let storage = textStorage else {
-            typingAttributes = titleTypingAttributes()
-            return
-        }
-
-        guard storage.length > 0 else {
-            typingAttributes = titleTypingAttributes()
-            return
-        }
-
-        let firstParagraph = (string as NSString).paragraphRange(
-            for: NSRange(location: 0, length: 0)
-        )
-        storage.beginEditing()
-        storage.addAttribute(.font, value: Self.titleFont, range: firstParagraph)
-        storage.addAttribute(.paragraphStyle, value: Self.titleParagraphStyle(), range: firstParagraph)
-
-        let bodyStart = firstParagraph.location + firstParagraph.length
-        if bodyStart < storage.length {
-            storage.addAttribute(
-                .font,
-                value: Self.bodyFont,
-                range: NSRange(location: bodyStart, length: storage.length - bodyStart)
-            )
-            storage.addAttribute(
-                .paragraphStyle,
-                value: Self.bodyParagraphStyle(),
-                range: NSRange(location: bodyStart, length: storage.length - bodyStart)
-            )
-        }
-        storage.endEditing()
-    }
-
-    func applyDefaultBodyDocumentStyle() {
-        guard let storage = textStorage else {
-            typingAttributes = bodyTypingAttributes()
-            return
-        }
-
-        guard storage.length > 0 else {
-            typingAttributes = bodyTypingAttributes()
-            return
-        }
-
-        storage.beginEditing()
-        storage.addAttribute(.font, value: Self.bodyFont, range: NSRange(location: 0, length: storage.length))
-        storage.addAttribute(.paragraphStyle, value: Self.bodyParagraphStyle(), range: NSRange(location: 0, length: storage.length))
-        storage.endEditing()
-        typingAttributes = bodyTypingAttributes()
-    }
-
-    func updateTypingAttributesForCurrentPosition() {
-        guard let storage = textStorage, storage.length > 0 else {
-            typingAttributes = startsWithTitle ? titleTypingAttributes() : bodyTypingAttributes()
-            return
-        }
-
-        let location = min(max(selectedRange().location, 0), storage.length - 1)
-        typingAttributes = storage.attributes(at: location, effectiveRange: nil)
-    }
-
-    override func insertNewline(_ sender: Any?) {
-        let currentTypingAttributes = typingAttributes
-        let isInsideTable = (currentTypingAttributes[.paragraphStyle] as? NSParagraphStyle)?
-            .textBlocks
-            .contains(where: { $0 is NSTextTableBlock }) == true
-        super.insertNewline(sender)
-        if isInsideTable {
-            // A return inside a cell creates another paragraph in that same
-            // table block. Keep its block metadata so the new line remains
-            // inside the cell instead of escaping into the document body.
-            typingAttributes = currentTypingAttributes
-        } else {
-            // AppKit carries the current title attributes across a newline.
-            // The next normal paragraph is the body, so switch typing
-            // attributes immediately after the insertion.
-            typingAttributes = bodyTypingAttributes()
-        }
-    }
-
-    override func paste(_ sender: Any?) {
-        if let image = NSImage(pasteboard: NSPasteboard.general) {
-            let attachment = NSTextAttachment()
-            attachment.image = Self.scaledImage(image, maxWidth: 320)
-            let inserted = NSAttributedString(attachment: attachment)
-            let range = selectedRange()
-            textStorage?.replaceCharacters(in: range, with: inserted)
-            setSelectedRange(NSRange(location: range.location + inserted.length, length: 0))
-            didChangeText()
-            return
-        }
-        super.paste(sender)
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        drawsBackground = false
-        enclosingScrollView?.drawsBackground = false
-    }
-
-    private func titleTypingAttributes() -> [NSAttributedString.Key: Any] {
-        [
-            .font: Self.titleFont,
-            .foregroundColor: textColor ?? NSColor.textColor,
-            .paragraphStyle: Self.titleParagraphStyle()
-        ]
-    }
-
-    private func bodyTypingAttributes() -> [NSAttributedString.Key: Any] {
-        Self.bodyTypingAttributes(for: textColor)
-    }
-
-    static func bodyTypingAttributes(for textColor: NSColor?) -> [NSAttributedString.Key: Any] {
-        [
-            .font: bodyFont,
-            .foregroundColor: textColor ?? NSColor.textColor,
-            .paragraphStyle: bodyParagraphStyle()
-        ]
-    }
-
-    static func titleParagraphStyle() -> NSParagraphStyle {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacing = NookLayout.titleBodyGap
-        return paragraph
-    }
-
-    private static func bodyParagraphStyle() -> NSParagraphStyle {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacing = 0
-        return paragraph
-    }
-
-    private static func scaledImage(_ image: NSImage, maxWidth: CGFloat) -> NSImage {
-        let size = image.size
-        guard size.width > maxWidth, size.width > 0 else { return image }
-        let scale = maxWidth / size.width
-        let scaled = NSImage(size: NSSize(width: maxWidth, height: size.height * scale))
-        scaled.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: scaled.size), from: .zero, operation: .sourceOver, fraction: 1)
-        scaled.unlockFocus()
-        return scaled
+    private func dismissEditorMenus() {
+        isFormattingPopoverPresented = false
+        isListPopoverPresented = false
+        isAttachmentPopoverPresented = false
+        isTagPickerPresented = false
     }
 }
 
 private struct NookFormattingToolbar: View {
     let isDark: Bool
     let hasSelection: Bool
-    let bridge: NookEditorBridge
+    @ObservedObject var bridge: NookEditorBridge
     @Binding var isPresented: Bool
     @Binding var isListPresented: Bool
     @Binding var isAttachmentPresented: Bool
@@ -2306,6 +1777,10 @@ private struct NookFormattingToolbar: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             HStack(spacing: 2) {
+                NookFormatButton(icon: "bold", label: language.strings.formatBold + " (⌘B)", ink: ink,
+                                 isEnabled: true, isSelected: bridge.activeStyles.contains(.bold)) { bridge.apply(.bold) }
+                NookFormatButton(icon: "italic", label: language.strings.formatItalic + " (⌘I)", ink: ink,
+                                 isEnabled: true, isSelected: bridge.activeStyles.contains(.italic)) { bridge.apply(.italic) }
                 NookFormatButton(
                     icon: "textformat",
                     label: language.strings.formatMenu,
@@ -2353,6 +1828,11 @@ private struct NookFormattingToolbar: View {
                     isListPresented = false
                     withAnimation(.easeOut(duration: 0.14)) { isAttachmentPresented.toggle() }
                 }
+                Divider().frame(height: 18).padding(.horizontal, 2)
+                NookFormatButton(icon: "arrow.uturn.backward", label: language.strings.undo,
+                                 ink: ink, isEnabled: bridge.canUndo) { bridge.undo() }
+                NookFormatButton(icon: "arrow.uturn.forward", label: language.strings.redo,
+                                 ink: ink, isEnabled: bridge.canRedo) { bridge.redo() }
             }
             .padding(4)
             .background(railSurface, in: Capsule())
@@ -2376,7 +1856,7 @@ private struct NookFormattingToolbar: View {
                     onDismiss: { isListPresented = false }
                 )
                 .environmentObject(language)
-                .offset(x: 34, y: 48)
+                .offset(x: 0, y: 48)
                 .zIndex(2)
             }
 
@@ -2393,7 +1873,7 @@ private struct NookFormattingToolbar: View {
                     }
                 )
                 .environmentObject(language)
-                .offset(x: 74, y: 48)
+                .offset(x: 60, y: 48)
                 .zIndex(2)
             }
         }
@@ -2426,6 +1906,7 @@ private struct NookFormatButton: View {
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .help(label)
         .accessibilityLabel(label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -2454,7 +1935,7 @@ private struct NookFormatButton: View {
             Image(systemName: "strikethrough")
                 .font(.system(size: 15, weight: .semibold))
         default:
-            Image(systemName: "curlybraces")
+            Image(systemName: icon)
                 .font(.system(size: 15, weight: .semibold))
         }
     }
@@ -2463,7 +1944,7 @@ private struct NookFormatButton: View {
 private struct NookTextStylePopover: View {
     let isDark: Bool
     let hasSelection: Bool
-    let bridge: NookEditorBridge
+    @ObservedObject var bridge: NookEditorBridge
     let onDismiss: () -> Void
 
     @EnvironmentObject private var language: NookLanguageStore
@@ -2478,10 +1959,11 @@ private struct NookTextStylePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 2) {
-                NookFormatButton(icon: "bold", label: language.strings.formatBold, ink: ink, isEnabled: hasSelection) { bridge.apply(.bold) }
-                NookFormatButton(icon: "italic", label: language.strings.formatItalic, ink: ink, isEnabled: hasSelection) { bridge.apply(.italic) }
-                NookFormatButton(icon: "strikethrough", label: language.strings.formatStrike, ink: ink, isEnabled: hasSelection) { bridge.apply(.strikethrough) }
-                NookFormatButton(icon: "curlybraces", label: language.strings.formatCode, ink: ink, isEnabled: hasSelection) { bridge.apply(.code) }
+                NookFormatButton(icon: "bold", label: language.strings.formatBold, ink: ink, isEnabled: true, isSelected: bridge.activeStyles.contains(.bold)) { bridge.apply(.bold) }
+                NookFormatButton(icon: "italic", label: language.strings.formatItalic, ink: ink, isEnabled: true, isSelected: bridge.activeStyles.contains(.italic)) { bridge.apply(.italic) }
+                NookFormatButton(icon: "underline", label: language.strings.formatUnderline, ink: ink, isEnabled: true, isSelected: bridge.activeStyles.contains(.underline)) { bridge.apply(.underline) }
+                NookFormatButton(icon: "strikethrough", label: language.strings.formatStrike, ink: ink, isEnabled: true, isSelected: bridge.activeStyles.contains(.strikethrough)) { bridge.apply(.strikethrough) }
+                NookFormatButton(icon: "curlybraces", label: language.strings.formatCode, ink: ink, isEnabled: true, isSelected: bridge.activeStyles.contains(.code)) { bridge.apply(.code) }
             }
             // Keep the inline controls as individual circular buttons. The
             // style popover itself is already the grouping surface; a second
@@ -2510,7 +1992,7 @@ private struct NookTextStylePopover: View {
             styleButton(language.strings.formatBlockQuote, style: .blockquote, font: .system(size: 12, weight: .medium, design: .rounded))
         }
         .padding(8)
-        .frame(width: 192)
+        .frame(width: 206)
         .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(isDark ? 0.3 : 0.16), radius: 16, y: 7)
     }
@@ -2535,7 +2017,7 @@ private struct NookTextStylePopover: View {
 
 private struct NookListPopover: View {
     let isDark: Bool
-    let bridge: NookEditorBridge
+    @ObservedObject var bridge: NookEditorBridge
     let onDismiss: () -> Void
 
     @EnvironmentObject private var language: NookLanguageStore

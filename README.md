@@ -7,23 +7,28 @@ This started as a personal tool. It is intentionally focused: quick notes, a few
 ## What it does
 
 - Opens from the menu bar or with the global `⌘⌥N` shortcut (the shortcut can be changed in Settings).
-- Keeps notes locally on the Mac; there is no account, sync service, telemetry, or network dependency.
+- Keeps notes locally on the Mac; there is no account, note sync service, or telemetry.
 - Supports titles, rich text, lists, native editable tables, inline photos, file attachments, and pasted images.
+- Keeps photos and files inside the saved note, with undo/redo for editing actions, inline formatting at the cursor, and list continuation on Return.
 - Includes tags, pinning, manual drag-and-drop ordering, search, and Today/Pinned filters.
 - Follows the system appearance by default, with Light and Dark overrides.
 - Can stay visible across Spaces. The panel itself can be moved between displays and snaps back to a nearby screen edge when released.
-- Uses the menu-bar icon’s secondary click for a complete “Quit Nook” action.
+- Checks for new GitHub releases automatically, with a setting to disable scheduled checks. Updates are installed only when you choose Install and Relaunch.
+- Offers Check for Updates and Quit Nook from the menu-bar icon’s secondary click.
+- Can launch at login, controlled in Settings and reflected from macOS Login Items.
 
 ## Requirements
 
 - macOS 13 Ventura or newer
 - Swift 5.9 or newer
 
-Nook uses AppKit and SwiftUI from the system SDK. There are no third-party package dependencies.
+Nook uses AppKit and SwiftUI from the system SDK, and Sparkle for signed app updates.
 
 ## Install a release
 
-Download the latest `.dmg` from [GitHub Releases](https://github.com/eminuckan/Nook/releases), open it, and drag Nook to Applications. The current public asset (`v0.1.0`) is for Apple Silicon (`arm64`) and is ad-hoc signed for local use, so macOS can show a Gatekeeper warning. For your own Mac, right-click Nook and choose **Open** the first time.
+Download the latest `.dmg` from [GitHub Releases](https://github.com/eminuckan/Nook/releases), open it, and drag Nook to Applications. The release is for Apple Silicon (`arm64`) and is ad-hoc signed, not Developer ID signed or Apple notarized. macOS can therefore block the first launch. After verifying the source, use the app-specific **Open Anyway** option in System Settings → Privacy & Security where macOS offers it. Do not disable Gatekeeper globally. See [Apple’s explanation of the different security warnings](https://support.apple.com/en-gb/102445).
+
+In Nook Settings, **Automatically check for updates** controls scheduled GitHub checks, and **Launch at login** controls macOS startup registration. Right-click the menu-bar icon and choose **Check for Updates…** for an immediate check. Sparkle verifies each update with Nook’s Ed25519 public key; this protects the update channel but does not replace Apple notarization. The app saves notes before installing and relaunching. See [update publishing and signing](docs/UPDATES.md).
 
 ## Build and run from source
 
@@ -34,6 +39,8 @@ swift build -c release
 
 Nook is a menu-bar app, so launching it does not open a regular document window. Look for the note icon in the menu bar. Right-click that icon to quit.
 
+Run `swift test` for document round trips, native editing, and persistence recovery checks. For an isolated UI session, run `./.build/debug/Nook --preview`; preview notes use the temporary `Nook-Editor-Preview` directory instead of your personal notes folder.
+
 To create local release assets (`.app`, `.zip`, `.dmg`, and checksums):
 
 ```sh
@@ -41,6 +48,8 @@ To create local release assets (`.app`, `.zip`, `.dmg`, and checksums):
 ```
 
 The packaging script is macOS-only because it uses `codesign`, `ditto`, and `hdiutil`.
+
+The icon masters are editable SVGs in `Sources/Nook/Resources`: `NookLogo.svg` for the monochrome menu-bar mark and `NookAppIcon.svg` for the app icon. After editing the app icon, run `swift Scripts/render-app-icon.swift` to regenerate the bundled `Resources/Nook.icns` and 1024-pixel PNG.
 
 ## Releases and versioning
 
@@ -78,7 +87,9 @@ Notes are stored in:
 ~/Library/Application Support/Nook/notes.json
 ```
 
-Appearance, language, shortcut, and custom-tag preferences are kept in the standard macOS `UserDefaults` store for the app. The source does not send note content anywhere.
+Appearance, language, shortcut, custom-tag, and update-check preferences are kept in the standard macOS `UserDefaults` store for the app. Launch-at-login state is managed by macOS. Update checks connect to GitHub to retrieve release metadata and update packages; note content is never sent.
+
+Rich note bodies use self-contained RTFD data in the existing `bodyRTF` JSON field; legacy RTF notes remain readable. Save failures are shown with a retry action. If an existing notes file cannot be read, Nook preserves it and blocks writes until the file is repaired or moved safely aside.
 
 ## Contributing
 

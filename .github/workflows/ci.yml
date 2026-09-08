@@ -16,5 +16,8 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Test editor, persistence, and app services
+        run: swift test
+
       - name: Build release binary
         run: swift build -c release

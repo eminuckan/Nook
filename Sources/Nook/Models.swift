@@ -61,7 +61,7 @@ struct NookNote: Identifiable, Codable, Equatable {
     var id: UUID
     var title: String
     var body: String
-    /// Optional RTF keeps the body editor's formatting without breaking the
+    /// Flat RTFD (or legacy RTF) keeps formatting and embedded attachment bytes without breaking the
     /// plain-text title/body preview and search contract used by the list.
     /// Legacy composite streams are reduced to the body when opened.
     var bodyRTF: Data? = nil
@@ -75,6 +75,7 @@ struct NookNote: Identifiable, Codable, Equatable {
 
     func preview(for language: NookLanguage) -> String {
         let flattened = body
+            .replacingOccurrences(of: "\u{fffc}", with: language == .turkish ? "[Ek]" : "[Attachment]")
             .replacingOccurrences(of: "\n", with: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard flattened.isEmpty == false else {
@@ -116,6 +117,11 @@ enum NookPalette {
     static let blue = Color(nsColor: NSColor(srgbRed: 0.36, green: 0.63, blue: 0.95, alpha: 1))
     static let cardInkNS = NSColor(srgbRed: 0.105, green: 0.12, blue: 0.125, alpha: 1)
     static let cardLightSurfaceNS = NSColor(srgbRed: 0.94, green: 0.945, blue: 0.94, alpha: 1)
+    static func editorCanvasNS(isDark: Bool) -> NSColor {
+        isDark
+            ? NSColor(srgbRed: 0.144775, green: 0.144775, blue: 0.14005, alpha: 1)
+            : NSColor(srgbRed: 0.8977, green: 0.902475, blue: 0.8977, alpha: 1)
+    }
 }
 
 extension Color {

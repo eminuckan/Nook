@@ -119,6 +119,18 @@ struct NookStrings {
     var shortcutModifierRequired: String { language == .turkish ? "⌘, ⌥, ⌃ veya ⇧ tuşlarından en az birini ekle." : "Add at least one of ⌘, ⌥, ⌃, or ⇧." }
     var shortcutConflictUnavailable: String { language == .turkish ? "Bu kombinasyon başka bir uygulama tarafından kullanılıyor olabilir." : "Another app may already be using this combination." }
     var quitNook: String { language == .turkish ? "Nook’tan çık" : "Quit Nook" }
+    var checkForUpdates: String { language == .turkish ? "Güncellemeleri kontrol et…" : "Check for Updates…" }
+    var updatesSection: String { language == .turkish ? "Güncellemeler" : "Updates" }
+    var automaticUpdateChecks: String { language == .turkish ? "Güncellemeleri otomatik kontrol et" : "Automatically check for updates" }
+    var automaticUpdateChecksDescription: String { language == .turkish ? "Yeni sürüm olduğunda haber verir. Kurulumu sen başlatırsın." : "Lets you know when a new version is available. You choose when to install." }
+    var updatesUnavailableInPreview: String { language == .turkish ? "Güncellemeler kurulu Nook uygulamasında kullanılabilir." : "Updates are available in the installed Nook app." }
+    func currentVersion(_ version: String) -> String { language == .turkish ? "Yüklü sürüm: \(version)" : "Installed version: \(version)" }
+    var startupSection: String { language == .turkish ? "Başlangıç" : "Startup" }
+    var launchAtLogin: String { language == .turkish ? "Oturum açıldığında başlat" : "Launch at login" }
+    var launchAtLoginDescription: String { language == .turkish ? "Mac’inde oturum açınca Nook menü çubuğunda hazır olur." : "Keep Nook ready in the menu bar when you log in to your Mac." }
+    var installForStartup: String { language == .turkish ? "Bu seçenek için Nook’u Uygulamalar klasörüne kur." : "Install Nook in Applications to enable this option." }
+    var loginApprovalRequired: String { language == .turkish ? "macOS onayı bekleniyor. Sistem Ayarları’nda Nook’a izin ver." : "Waiting for macOS approval. Allow Nook in System Settings." }
+    var openLoginItems: String { language == .turkish ? "Oturum Açma Öğelerini aç…" : "Open Login Items…" }
     func shortcutConflictSystem(_ name: String) -> String { language == .turkish ? "Bu kombinasyon \(name) ile çakışıyor. Başka bir kombinasyon dene." : "This combination conflicts with \(name). Try another one." }
     var systemLanguageValue: String {
         let name = NookLanguage.system.nativeName
@@ -140,6 +152,17 @@ struct NookStrings {
     var noteBody: String { language == .turkish ? "Not içeriği" : "Note content" }
     var bodyPlaceholder: String { language == .turkish ? "Buraya aklındaki şeyi bırak…" : "Drop the thought here…" }
     var autosaved: String { language == .turkish ? "Otomatik kaydedildi" : "Saved locally" }
+    var saveFailed: String { language == .turkish ? "Kaydedilemedi" : "Not saved" }
+    var unsavedQuitWarning: String { language == .turkish ? "Son değişiklikler diske yazılamadı. Şimdi çıkarsan bu değişiklikler kaybolacak." : "Your latest changes could not be written to disk. Quitting now will lose these changes." }
+    var quitWithoutSaving: String { language == .turkish ? "Kaydetmeden çık" : "Quit without saving" }
+    var loadFailed: String { language == .turkish ? "Notlar açılamadı; mevcut dosya korundu." : "Notes could not be opened; the existing file was preserved." }
+    var retry: String { language == .turkish ? "Yeniden dene" : "Retry" }
+    var cancel: String { language == .turkish ? "Vazgeç" : "Cancel" }
+    var editorError: String { language == .turkish ? "Düzenleme tamamlanamadı" : "The edit could not be completed" }
+    var undo: String { language == .turkish ? "Geri al (⌘Z)" : "Undo (⌘Z)" }
+    var redo: String { language == .turkish ? "Yinele (⇧⌘Z)" : "Redo (⇧⌘Z)" }
+    var formatUnderline: String { language == .turkish ? "Altı çizili" : "Underline" }
+    func wordCount(_ count: Int) -> String { language == .turkish ? "\(count) kelime" : "\(count) words" }
     var editorHint: String { language == .turkish ? "Seçerek biçimlendir" : "Select text to format" }
     var formatting: String { language == .turkish ? "Biçimlendirme" : "Formatting" }
     var formatMenu: String { language == .turkish ? "Metin biçimi" : "Text format" }

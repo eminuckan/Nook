@@ -6,6 +6,8 @@
 	<string>Nook</string>
 	<key>CFBundleExecutable</key>
 	<string>Nook</string>
+	<key>CFBundleIconFile</key>
+	<string>Nook.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.nook.quicknotes</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -15,14 +17,26 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.2.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>0.2.0</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<false/>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://github.com/eminuckan/Nook/releases/latest/download/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>+6icxfTclTPmT5Yj1Wm06makwTfyapghXD10zyu8wGI=</string>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
 </dict>
 </plist>
