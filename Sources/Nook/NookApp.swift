@@ -93,7 +93,7 @@ private final class NookStatusItemView: NSView {
 
 private enum NookLogoAsset {
     static func image(size: NSSize) -> NSImage? {
-        guard let url = Bundle.module.url(
+        guard let url = NookResources.url(
             forResource: "NookLogo",
             withExtension: "svg"
         ),
@@ -118,7 +118,7 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        if let iconURL = Bundle.module.url(forResource: "NookAppIcon", withExtension: "svg"),
+        if let iconURL = NookResources.url(forResource: "NookAppIcon", withExtension: "svg"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = icon
         }
@@ -161,6 +161,11 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func togglePanel() {
         panelController?.toggle()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panelController?.show()
+        return false
     }
 
     private func showStatusMenu(from view: NSView) {

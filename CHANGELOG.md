@@ -2,6 +2,11 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-09-08
+
+- Packaged apps resolve icons from their own resources instead of requiring the build machine’s SwiftPM directory.
+- Opening an already-running Nook from Spotlight or Finder reveals its panel.
+
 ## [0.2.0] - 2026-09-08
 
 - Default tags are English: Inbox, Ideas, Design, Tasks, and Personal. Existing tags marked as old built-ins migrate without changing custom labels or note content.
