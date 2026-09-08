@@ -1662,7 +1662,8 @@ private struct NoteEditorSurface: View {
                 .padding(.horizontal, NookLayout.editorTextInset)
                 .padding(.top, NookLayout.editorTextVerticalInset)
                 .padding(.bottom, NookLayout.titleBodyGap)
-                .frame(maxWidth: .infinity, minHeight: 54, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .fixedSize(horizontal: false, vertical: true)
 
                 ZStack(alignment: .topLeading) {
                     NookRichTextEditor(
