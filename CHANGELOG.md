@@ -2,6 +2,12 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.2] - 2026-09-08
+
+- Remove the empty standalone Settings window that could appear when opening Nook.
+- The macOS Settings menu and Command-comma open the real settings inside the Nook panel.
+- Preserve native editing and quit shortcuts with an explicit application menu.
+
 ## [0.2.1] - 2026-09-08
 
 - Packaged apps resolve icons from their own resources instead of requiring the build machine’s SwiftPM directory.

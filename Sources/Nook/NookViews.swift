@@ -135,6 +135,9 @@ struct NookRootView: View {
         }
         .frame(width: 420, height: 800)
         .preferredColorScheme(settings.appearance.colorScheme)
+        .onReceive(NotificationCenter.default.publisher(for: .nookOpenSettings)) { _ in
+            showSettings()
+        }
     }
 
     private func createNote() {

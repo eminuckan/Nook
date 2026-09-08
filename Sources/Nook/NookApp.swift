@@ -12,14 +12,20 @@ import SwiftUI
 */
 
 @main
-struct NookApp: App {
-    @NSApplicationDelegateAdaptor(NookAppDelegate.self) private var appDelegate
-
-    var body: some Scene {
-        Settings {
-            EmptyView()
-        }
+struct NookApp {
+    @MainActor
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = NookAppDelegate()
+        application.delegate = delegate
+        // A menu-bar app has no standalone SwiftUI window scene. Keep its
+        // delegate alive for the full AppKit event loop.
+        withExtendedLifetime(delegate) { application.run() }
     }
+}
+
+extension Notification.Name {
+    static let nookOpenSettings = Notification.Name("NookOpenSettings")
 }
 
 /// A tiny view-backed status item lets Nook keep the normal left-click action
@@ -118,6 +124,7 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        installMainMenu()
         if let iconURL = NookResources.url(forResource: "NookAppIcon", withExtension: "svg"),
            let icon = NSImage(contentsOf: iconURL) {
             NSApp.applicationIconImage = icon
@@ -157,6 +164,39 @@ final class NookAppDelegate: NSObject, NSApplicationDelegate {
                 self?.panelController?.show()
             }
         }
+    }
+
+    private func installMainMenu() {
+        let menu = NSMenu()
+        let applicationItem = NSMenuItem()
+        let applicationMenu = NSMenu(title: "Nook")
+        let settingsItem = NSMenuItem(title: language.strings.settingsTitle + "…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        applicationMenu.addItem(settingsItem)
+        applicationMenu.addItem(.separator())
+        let quitItem = NSMenuItem(title: language.strings.quitNook, action: #selector(quitNook), keyEquivalent: "q")
+        quitItem.target = self
+        applicationMenu.addItem(quitItem)
+        applicationItem.submenu = applicationMenu
+        menu.addItem(applicationItem)
+
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        for (title, action, key) in [
+            ("Undo", "undo:", "z"), ("Redo", "redo:", "Z"),
+            ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
+            ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")
+        ] {
+            editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
+        }
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+        NSApp.mainMenu = menu
+    }
+
+    @objc private func openSettings() {
+        panelController?.show()
+        NotificationCenter.default.post(name: .nookOpenSettings, object: nil)
     }
 
     @objc private func togglePanel() {
