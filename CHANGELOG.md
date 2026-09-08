@@ -2,6 +2,10 @@
 
 This file records user-facing changes. Versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.2.6] - 2026-09-08
+
+- Activate Nook when interacting with its floating panel, so system clipboard tools can return to Nook instead of the previously active application. The panel still stays visible above normal windows when another app gains focus.
+
 ## [0.2.5] - 2026-09-08
 
 - Keep Nook visible above normal application windows when switching apps or selecting an item in Spotlight clipboard history. Use the minimize control or menu-bar icon to hide the panel explicitly.

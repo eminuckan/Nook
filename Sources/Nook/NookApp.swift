@@ -274,7 +274,9 @@ private final class NookPanelController: NSObject, NSWindowDelegate {
         loginItem = NookLoginItem()
         panel = NookPanel(
             contentRect: NSRect(x: 0, y: 0, width: 420, height: 800),
-            styleMask: [.borderless, .nonactivatingPanel],
+            // Editing must activate Nook so system UI (including Spotlight
+            // clipboard history) returns input to this app, not the app behind it.
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
