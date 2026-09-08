@@ -44,7 +44,7 @@ Nook started as a personal tool for quick notes. No account to create, no worksp
 
 ## A quick tour
 
-1. **Open** from the menu-bar icon or **⌘⌥N**. The shortcut is configurable in Settings.
+1. **Launch Nook** to open the panel automatically at the right edge. Reopen it from the menu-bar icon or **⌘⌥N**. The shortcut is configurable in Settings.
 2. **Capture** a note with a title, formatted text, or an attachment.
 3. **Organize** with a tag or pin; use search when you need it again.
 4. **Keep it nearby** while working in another app. Use the panel's minimize control or menu-bar icon to hide it.
@@ -82,7 +82,7 @@ swift build -c release
 ./.build/release/Nook
 ```
 
-Nook is a menu-bar app, so launching it does not open a regular document window. Look for the note icon in the menu bar. Right-click that icon to quit.
+Nook is a menu-bar app that opens its floating notes panel automatically on launch. Use the note icon in the menu bar to hide or reopen the panel. Right-click that icon to quit.
 
 Run `swift test` for document round trips, native editing, and persistence recovery checks. The tests require full Xcode; if Command Line Tools is selected, use `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swift test`. For an isolated UI session, run `./.build/debug/Nook --preview`; preview notes use the temporary `Nook-Editor-Preview` directory instead of your personal notes folder.
 
