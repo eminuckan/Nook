@@ -9,13 +9,13 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 | Order | Focus | Status | Why here |
 | :--- | :--- | :--- | :--- |
 | 1 | Reliability and portable notes | Next | Every new client and capture format depends on preserving existing content. |
-| 2 | Windows and Linux apps | Planned | Establish the shared note contract with another desktop client before adding synchronization. |
-| 3 | Optional synchronization | Planned | Make the same notes available across devices without sacrificing offline use. |
-| 4 | Mobile apps for iOS and Android | Planned | Bring capture and access to phones on top of the tested sync foundation. |
-| 5 | Audio notes | Planned | Save recordings as notes before adding transcription on top. |
-| 6 | Voice-to-text notes | Planned | Turn speech into editable text, with a clear choice about retaining the recording. |
-| 7 | Drawings and sketches | Planned | Add an editable visual capture format across desktop and mobile. |
-| 8 | Optional AI with your own API key | Exploring | Build on reliable capture and storage; validate useful actions before committing to providers. |
+| 2 | Optional synchronization | Planned | Make the same notes available across devices without sacrificing offline use. |
+| 3 | Mobile apps for iOS and Android | Planned | Bring capture and access to phones on top of the tested sync foundation. |
+| 4 | Audio notes | Planned | Save recordings as notes before adding transcription on top. |
+| 5 | Voice-to-text notes | Planned | Turn speech into editable text, with a clear choice about retaining the recording. |
+| 6 | Drawings and sketches | Planned | Add an editable visual capture format across desktop and mobile. |
+| 7 | Optional AI with your own API key | Exploring | Build on reliable capture and storage; validate useful actions before committing to providers. |
+| 8 | Windows and Linux apps | Deferred | Revisit desktop expansion after the higher-priority features; other milestones do not depend on these ports. |
 
 ## 1. Reliability and portable notes
 
@@ -25,24 +25,16 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 
 **Ready to move on when:** representative existing notes survive migration and round trips without losing text, formatting, or attachments, and failed saves remain recoverable. The current macOS RTFD representation needs an explicit compatibility plan before other clients depend on it.
 
-## 2. Windows and Linux apps
-
-- [ ] Build Windows and Linux desktop clients with quick capture, local persistence, search, tags, and pinned notes.
-- [ ] Adapt the floating-panel and tray experience to each platform's windowing behavior.
-- [ ] Establish installation, update, and compatibility checks for each supported platform.
-
-**Ready to move on when:** at least one additional desktop client can reliably read and edit the shared note format. Windows and Linux are both targets; their delivery order and Linux desktop support will be settled during feasibility work. macOS development continues throughout.
-
-## 3. Optional synchronization
+## 2. Optional synchronization
 
 - [ ] Synchronize notes and attachments between devices while keeping offline reading and editing available.
 - [ ] Handle concurrent edits, deletions, interrupted transfers, and reconnects without silently losing content.
 - [ ] Show sync progress, failures, and recoverable conflicts clearly.
 - [ ] Decide and document hosting, identity, encryption, and data-deletion behavior before inviting users to sync personal notes.
 
-**Ready to move on when:** two clients can edit offline, reconnect, and converge with understandable conflict handling and recoverable failures. Sync is optional; local-only use remains available. No hosting provider or account model is selected by this roadmap.
+**Ready to move on when:** two macOS devices can edit offline, reconnect, and converge with understandable conflict handling and recoverable failures. Validate the shared sync contract on macOS first; Windows and Linux ports are not prerequisites. Sync is optional; local-only use remains available. No hosting provider or account model is selected by this roadmap.
 
-## 4. Mobile apps
+## 3. Mobile apps
 
 - [ ] Bring Nook to iOS and Android for quick capture and access to existing notes.
 - [ ] Support offline editing and synchronization with desktop clients.
@@ -50,7 +42,7 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 
 **Ready to move on when:** a note can move between a phone and desktop through real offline/reconnect workflows without losing supported content. Mobile prototypes can start earlier, but synced releases depend on the previous milestone.
 
-## 5. Audio notes
+## 4. Audio notes
 
 - [ ] Record directly into a note and keep the original audio as an attachment.
 - [ ] Play recordings back inside Nook and allow users to export them.
@@ -58,7 +50,7 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 
 **Ready to move on when:** recordings survive save, reopen, export, and sync. Recording an audio note does not require transcription or AI.
 
-## 6. Voice-to-text notes
+## 5. Voice-to-text notes
 
 - [ ] Convert speech into editable note text.
 - [ ] Let users choose between a text note and text with the original recording retained.
@@ -66,7 +58,7 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 
 **Ready to move on when:** a failed transcription cannot destroy an existing recording or draft, and users understand whether audio stays on-device or is sent to a service. No transcription provider or offline capability is promised yet.
 
-## 7. Drawings and sketches
+## 6. Drawings and sketches
 
 - [ ] Create and edit drawings inside notes with pointer or touch input.
 - [ ] Preserve editable drawing data and provide a viewable representation on other clients.
@@ -74,7 +66,7 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 
 **Ready to move on when:** sketches remain editable on supported clients and readable elsewhere. This is a new drawing tool; attaching an existing image is already supported today.
 
-## 8. Optional AI — bring your own key
+## 7. Optional AI — bring your own key
 
 - [ ] Explore explicit actions such as summarizing a note, rewriting selected text, or extracting tasks.
 - [ ] Let users configure their own provider API key (BYOK) and understand provider charges.
@@ -82,6 +74,16 @@ This is a direction, not a release schedule. Unchecked items are future work, no
 - [ ] Keep AI optional; ordinary note capture, editing, and storage work without a key.
 
 **Decision gate:** validate a small set of useful actions, supported providers, privacy behavior, and failure handling before turning this exploration into a delivery commitment. AI is not a dependency for audio recording, drawings, or synchronization.
+
+## 8. Windows and Linux apps
+
+- [ ] Build Windows and Linux desktop clients with quick capture, local persistence, search, tags, and pinned notes.
+- [ ] Adapt the floating-panel and tray experience to each platform's windowing behavior.
+- [ ] Establish installation, update, and compatibility checks for each supported platform.
+
+**Deferred:** Windows and Linux remain targets, but are not current priorities and do not block sync, mobile, or capture features. Revisit their delivery order and Linux desktop support after the higher-priority work.
+
+**Acceptance:** each released desktop client reliably reads and edits the shared note format and passes its platform-specific installation and compatibility checks.
 
 ## How this roadmap becomes work
 
